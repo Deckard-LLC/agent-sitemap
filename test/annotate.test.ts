@@ -40,7 +40,7 @@ function stub(calls: string[]): Annotator {
 }
 
 test("applies hints, drops weak similarity links and reuses the cache", async () => {
-  const cachePath = join(await mkdtemp(join(tmpdir(), "site-graph-")), "cache.json");
+  const cachePath = join(await mkdtemp(join(tmpdir(), "agent-sitemap-")), "cache.json");
   const calls: string[] = [];
   const graph = pages();
   const relatedBefore = graph.edges.filter((e) => e.kind === "related").length;
@@ -54,7 +54,7 @@ test("applies hints, drops weak similarity links and reuses the cache", async ()
   const written = graph.edges.find((e) => e.kind === "links" && e.from === "blog/a/tsena")!;
   assert.equal(written.why, "дополняет: Стоимость агента");
 
-  const files = render(graph, { base: "https://example.com/ai/", site: "https://example.com/", name: "Example", lang: "ru", generated: "2026-11-16T10:00:00Z", producer: "site-graph/test", model: "test" });
+  const files = render(graph, { base: "https://example.com/ai/", site: "https://example.com/", name: "Example", lang: "ru", generated: "2026-11-16T10:00:00Z", producer: "agent-sitemap/test", model: "test" });
   assert.match(files.get("blog/a.md")!, /2\. \[Цена\]\([^)]+\) — читать, если нужно про «Цена» ·/);
   assert.match(files.get("blog/a/tsena.md")!, /\[Стоимость агента\]\([^)]+\) — дополняет: Стоимость агента ·/);
   assert.match(files.get("blog/a/tsena.md")!, /^when: "нужно про «Цена»"$/m);
@@ -67,7 +67,7 @@ test("applies hints, drops weak similarity links and reuses the cache", async ()
 });
 
 test("a failed page keeps the plain map", async () => {
-  const cachePath = join(await mkdtemp(join(tmpdir(), "site-graph-")), "cache.json");
+  const cachePath = join(await mkdtemp(join(tmpdir(), "agent-sitemap-")), "cache.json");
   const graph = pages();
   const before = graph.nodes.get("blog/b")!.summary;
   const report = await annotate(graph, async () => { throw new Error("rate limited"); }, { cachePath, model: "test" });

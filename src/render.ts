@@ -15,7 +15,7 @@ export interface RenderOptions {
   lang: "ru" | "en";
   /** ISO 8601 datetime of the build, with a UTC offset. */
   generated: string;
-  /** OKF actor that produced the notes, e.g. «site-graph/0.1.0». */
+  /** OKF actor that produced the notes, e.g. «agent-sitemap/0.1.0». */
   producer: string;
   /** «absolute»: URLs under `base`, for agents on the web. «relative»: paths inside the bundle. */
   links?: "absolute" | "relative";
@@ -58,7 +58,7 @@ const LABELS = {
     howTo:
       "Every link leads to a short Markdown note: a page or one of its sections. " +
       "Next to it: what is there and roughly how many tokens it costs to read. " +
-      "Start with the page closest to the question, open only the sections you need and follow «Where next».",
+      "Start with the page closest to the question, open only the sections you need and follow “Where next”.",
     tokens: (n: number) => `≈${n} tokens`,
     readIf: (when: string) => `read if ${when}`,
     sectionsCount: (n: number) => `${n} section${n === 1 ? "" : "s"}`,
@@ -69,7 +69,7 @@ const LABELS = {
     linksTo: "Links to",
     linkedFrom: "Linked from",
     similarPages: "Similar pages",
-    fromSection: (title: string) => `from «${title}»`,
+    fromSection: (title: string) => `from “${title}”`,
     sectionOf: (i: number, n: number) => `Section ${i} of ${n} of`,
     whereNext: "Where next",
     next: "Next section",

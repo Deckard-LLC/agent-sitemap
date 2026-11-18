@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// npx site-graph <site-url> [options]   build the map
-// npx site-graph check [dir]            check a built map
+// npx agent-sitemap <site-url> [options]   build the map
+// npx agent-sitemap check [dir]            check a built map
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -14,11 +14,11 @@ import { isCyrillic } from "./text.ts";
 
 const DEFAULT_OUT = "ai";
 
-const USAGE = `site-graph: a linked Markdown map of your site that AI agents can walk.
+const USAGE = `agent-sitemap: a linked Markdown map of your site that AI agents can walk.
 
 Usage:
-  npx site-graph <site-url> [options]   build the map (also: site-graph build <site-url>)
-  npx site-graph check [dir]            check a built map (default dir: ./${DEFAULT_OUT})
+  npx agent-sitemap <site-url> [options]   build the map (also: agent-sitemap build <site-url>)
+  npx agent-sitemap check [dir]            check a built map (default dir: ./${DEFAULT_OUT})
 
 Options:
   --out <dir>        where to write the map (default: ./${DEFAULT_OUT})
@@ -32,7 +32,7 @@ Options:
   --llm              let Claude write «when to read» for notes and «why follow» for links, and drop
                      similarity links that only share words (needs ANTHROPIC_API_KEY; one request per page)
   --model <id>       Claude model for --llm (default: ${DEFAULT_MODEL})
-  --cache <file>     LLM results by content hash; unchanged pages cost nothing (default: .site-graph-cache.json)
+  --cache <file>     LLM results by content hash; unchanged pages cost nothing (default: .agent-sitemap-cache.json)
   -v, --version      print the version
   -h, --help         print this help`;
 
@@ -48,7 +48,7 @@ const { values, positionals } = parseArgs({
     links: { type: "string", default: "absolute" },
     llm: { type: "boolean", default: false },
     model: { type: "string", default: DEFAULT_MODEL },
-    cache: { type: "string", default: ".site-graph-cache.json" },
+    cache: { type: "string", default: ".agent-sitemap-cache.json" },
     version: { type: "boolean", short: "v" },
     help: { type: "boolean", short: "h" },
   },
@@ -73,7 +73,7 @@ else await build(args[0]);
 
 async function check(dir: string): Promise<void> {
   const report = await checkMap(dir).catch((error: NodeJS.ErrnoException) => {
-    fail(error.code === "ENOENT" ? `No map in ${dir}. Build one with: npx site-graph <site-url>` : error.message);
+    fail(error.code === "ENOENT" ? `No map in ${dir}. Build one with: npx agent-sitemap <site-url>` : error.message);
   });
   for (const warning of report.warnings) console.log(`  warning  ${warning}`);
   for (const problem of report.problems) console.log(`  problem  ${problem}`);
@@ -125,7 +125,7 @@ async function build(siteArg: string): Promise<void> {
     name: values.name ?? site.host,
     lang,
     generated: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
-    producer: `site-graph/${version}`,
+    producer: `agent-sitemap/${version}`,
     links: values.links as "absolute" | "relative",
     model: values.llm ? values.model : undefined,
   });
@@ -153,7 +153,7 @@ async function build(siteArg: string): Promise<void> {
       `  2. Tell agents where it is: add this line to ${llms}\n` +
       `       - [${lang === "ru" ? "Карта сайта для ИИ-агентов" : "Site map for AI agents"}](${base}index.md): ` +
       `${lang === "ru" ? "связанные заметки по страницам и разделам, с размером в токенах" : "linked notes for every page and section, with their size in tokens"}\n` +
-      `  3. Check the map any time: npx site-graph check ./${shown}`,
+      `  3. Check the map any time: npx agent-sitemap check ./${shown}`,
   );
 }
 
@@ -163,7 +163,7 @@ async function assertReplaceable(dir: string): Promise<void> {
   if (!entries.length) return;
   const graph = await readFile(join(dir, "graph.json"), "utf8").catch(() => "");
   if (entries.includes("index.md") && /"edges"\s*:/.test(graph)) return;
-  fail(`${dir} already exists and is not a site-graph map; it would be replaced. Pass another --out.`);
+  fail(`${dir} already exists and is not an agent-sitemap map; it would be replaced. Pass another --out.`);
 }
 
 function fail(message: string): never {

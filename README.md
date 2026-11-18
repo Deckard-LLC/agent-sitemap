@@ -1,120 +1,210 @@
-# site-graph
+<p align="center">
+  <img src="docs/agent-path.svg" width="100%" alt="An agent answers “How much does an AI agent cost, and when does it pay off?” by opening four small notes in turn: the site map, the page on agent cost, its section on model cost, and a similar section on payback from another page. Other pages and sections it saw listed stay closed.">
+</p>
 
-Turns a website into a map of small linked Markdown notes that an AI agent can walk like an
-Obsidian vault. The agent no longer has to read a whole page. It reads a short note, sees where
-each link leads, why it might follow it and how many tokens that costs, and goes deeper only
-where the question needs it.
+<h1 align="center">agent-sitemap</h1>
+
+<p align="center">
+  <b>Turns your website into a linked Markdown map that AI agents can walk,<br>opening only the pages they need.</b>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-an-agent-reads">What an agent reads</a> ·
+  <a href="#how-the-links-are-made">How the links are made</a> ·
+  <a href="#publish-the-map">Publish the map</a> ·
+  <a href="#hints-from-claude">Hints from Claude</a>
+</p>
+
+---
+
+An agent that lands on a website has two poor choices: read whole pages and fill its context,
+or guess from titles and miss. `agent-sitemap` gives it a third one. It cuts the site into small
+notes, one per page and one per section, and links them the way an Obsidian vault is linked.
+Every link says what is behind it and how many tokens it costs, so the agent reads a short note,
+picks the next step and goes deeper only where the question needs it.
+
+The map is plain Markdown with absolute links. Any agent that can fetch a URL can walk it; it
+needs no SDK, no plugin and no server-side search.
+
+## Quick start
 
 ```bash
-npx site-graph https://example.com
-# → ai/index.md, ai/<page>.md, ai/<page>/<section>.md, ai/graph.json
+npx agent-sitemap https://example.com
 ```
 
-Upload `ai/` so that `https://example.com/ai/index.md` opens (or pass `--base` for another
-place), and point agents at it from `llms.txt`. The build prints the exact line to add. Rebuild
-the map when the site changes.
+This reads the site through its `sitemap.xml`, writes the map to `./ai` and prints the next
+steps. You need Node 20 or newer; no API key unless you want [hints from Claude](#hints-from-claude).
 
-```bash
-npx site-graph check ai    # OKF structure, links between notes, notes without a description
+```text
+Map: 115 notes in ./ai
+  pages 15, sections 99
+  edges: links 24, lists 13, related 219, next 85
+  dropped as repeated template: разберём ваш процесс за 1–2 дня; ещё в блоге; с чего начать
+  OKF 0.2 bundle, absolute links
+
+Next steps
+  1. Upload ./ai so that https://deckardlab.tech/ai/index.md opens. Rebuild it when the site changes.
+  2. Tell agents where it is: add this line to https://deckardlab.tech/llms.txt
+  3. Check the map any time: npx agent-sitemap check ./ai
 ```
 
-`--out` is wiped before writing, so the build refuses a folder that is not an earlier map.
+<sub>Output of a real build of <a href="https://deckardlab.tech">deckardlab.tech</a>, a Russian-language site.</sub>
 
-The output is an [Open Knowledge Format](https://github.com/GoogleCloudPlatform/open-knowledge-format)
-(OKF v0.2) bundle, so tools that read OKF can open the map as is.
+## What an agent reads
 
-## What it builds
+The map has three levels:
 
-- **`index.md`** is the entry point. It lists pages grouped by the first segment of their path,
-  each with a one-line summary, its section count and its size in tokens.
-- **One note per page** holds the summary, the intro and the list of sections. It also lists the
-  pages it links to, the pages that link to it (backlinks) and similar pages.
-- **One note per section** (split on `##`) holds the full text of the section. Below it,
-  «Where next» gives the next section, the links from the text and similar sections on other
-  pages.
-- **`graph.json`** holds the same nodes and typed edges for tools.
+| Note | What it holds |
+| --- | --- |
+| `index.md` | The entry point: every page in one line, grouped by section of the site, with a summary, the number of sections and the size in tokens. |
+| `<page>.md` | The page's summary and intro, its sections, the pages it links to, the pages that link to it, and similar pages. |
+| `<page>/<section>.md` | The full text of one section (split on `##`), then **Where next**: the next section, links from the text and similar sections on other pages. |
 
-By default every link is an absolute URL under `--base`, so the notes work with any plain web
-fetch and need no special client. `--links relative` writes paths inside the folder instead (see
-below).
+A section note, as an agent sees it:
 
-## OKF
+```markdown
+---
+type: Web Page Section
+title: What the model costs to run
+description: "Cloud models charge for the text they read and write, measured in tokens."
+resource: "https://example.com/blog/agent-cost/"
+page: "https://example.com/ai/blog/agent-cost.md"
+tokens: 60
+---
 
-Each note is an OKF concept. Its frontmatter carries:
+# What the model costs to run
 
-- the OKF fields: `type` (`Web Page` or `Web Page Section`), `title`, `description`, `resource`
-  (the page URL) and `generated` (`by: site-graph/<version>`, `at: <build time>`);
-- this tool's own keys, which OKF allows: `tokens`, `sections`, `page` (the section's page note),
-  and `when` and `hints_by` after `--llm`.
+Section 2 of 3 of [How much an AI agent costs](https://example.com/ai/blog/agent-cost.md) · ≈60 tokens
 
-`index.md` follows the OKF index format: only `okf_version` in its frontmatter, and
-`* [Title](url) - description` entries under headings.
+Cloud models charge for the text they read and write, measured in tokens. Monthly cost = …
 
-Links between notes are ordinary Markdown links, as OKF expects. Two styles:
+## Where next
 
-- `--links absolute` (default): URLs under `--base`. Use this to serve the map on the site for
-  agents on the web. OKF consumers accept the bundle but see the links as external.
-- `--links relative`: paths such as `../b.md`. The folder is a self-contained bundle for git and
-  OKF tools, which then see the graph and backlinks. It still works when served on the site,
-  but the agent has to resolve each path against the note's URL.
+- Next section: [Why pay in stages](https://example.com/ai/blog/agent-cost/why-pay-in-stages.md) — A fixed price for a turnkey agent before the vendor has seen your data is a warning sign. · ≈50 tokens
+- Similar on other pages:
+  - [Will an AI agent pay off? → A simple payback calculation](https://example.com/ai/blog/payback/a-simple-payback-calculation.md) — Monthly saving = operations × (minutes now − minutes with the agent) ÷ 60 × hourly cost. · ≈40 tokens
+```
 
-## How links are made
+Labels follow the language of the site (Russian and English for now; `--lang` overrides it).
+Next to the notes, `graph.json` holds the same nodes and typed edges for tools.
 
-The base build uses no language model and is fully deterministic.
+## How the links are made
 
-| Edge       | Source                                                                          |
-| ---------- | ------------------------------------------------------------------------------- |
-| `contains` | page → its sections                                                             |
-| `next`     | section → the following section                                                 |
-| `links`    | a same-site link written in the section text                                    |
-| `lists`    | a listing page (`## [Title](/url)` cards, such as a blog index) → listed pages  |
-| `related`  | TF-IDF cosine similarity over stemmed words, at most one section per page       |
+The base build uses no language model and gives the same map for the same site.
 
-The build drops sections whose heading repeats on many pages (≥3 pages and ≥25 % of the site).
-These are template parts such as «More from the blog» or a CTA, and so are the cards inside them.
+| Edge | Source |
+| --- | --- |
+| `contains` | a page → its sections |
+| `next` | a section → the section that follows it |
+| `links` | a same-site link written in the section text |
+| `lists` | a listing page, such as a blog index, → the pages it lists as `## [Title](/url)` cards |
+| `related` | similar content on another page: TF-IDF cosine over stemmed words, at most one section per page |
 
-## Input
+Sections whose heading repeats across the site (on 3 pages or more, and on at least a quarter
+of them) are template parts such as “More from the blog” or a call to action. The build drops
+them, and the cards inside them.
 
-Page URLs come from `sitemap.xml`, including sitemap indexes. The build reads each page as
-Markdown in this order:
+Pages are read as Markdown when the site offers it, and converted from HTML otherwise:
 
 1. `Accept: text/markdown`
 2. `<link rel="alternate" type="text/markdown">`
-3. the HTML `<main>` converted with Turndown
+3. the page's `<main>`, converted with Turndown
 
-## Optional: hints from Claude (`--llm`)
+## Publish the map
+
+1. **Upload** `./ai` so that `https://example.com/ai/index.md` opens. To serve it elsewhere,
+   build with `--base <url>`.
+2. **Point agents at it.** Agents do not look for maps on their own, so add a line to
+   `llms.txt`. The build prints it, in the language of the site:
+
+   ```markdown
+   - [Site map for AI agents](https://example.com/ai/index.md): linked notes for every page and section, with their size in tokens
+   ```
+
+3. **Rebuild** when the site changes, for example after each deploy.
+4. **Check** the map at any time. `check` exits with code 1 on problems, so it fits CI:
+
+   ```bash
+   npx agent-sitemap check ./ai
+   # 115 notes, 901 links between them: 0 problems, 0 warnings — a valid OKF 0.2 map
+   ```
+
+The build replaces `--out` completely, so it refuses to write into a folder that is not an
+earlier map.
+
+## Hints from Claude
 
 ```bash
-ANTHROPIC_API_KEY=... npx site-graph https://example.com --llm
+ANTHROPIC_API_KEY=... npx agent-sitemap https://example.com --llm
 ```
 
-The build sends one request per page to Claude (`claude-opus-5-5` by default, `--model` to
-change it). Each request carries the page's sections and the links that leave the page. The
-model writes:
+Without a model, the text next to a link is the first sentence of the target. With `--llm`, the
+build sends one request per page to Claude (`claude-opus-5-5` by default, `--model` to change it)
+with the page's sections and the links that leave it. The model writes:
 
-- **when** for every page and section: the question for which an agent should open the note.
-  It is shown next to every link to that note («читать, если нужно оценить бюджет…»).
-- **summary** for every note: a factual one-liner that replaces the first-sentence summary.
-- **why** for every link: what following it adds for a reader of the source note.
-- **keep**: similarity links that only share words are dropped. Links written by the site's
+- **when to read** each page and section, shown next to every link to it:
+  “read if you need to estimate the monthly budget”;
+- **why follow** each link: what the target adds for a reader of this note;
+- **a factual summary** for each note;
+- **which similarity links to drop**: those that only share words. Links written by the site's
   authors are always kept.
 
-Answers are cached in `.site-graph-cache.json` by a hash of the page's input. A rebuild pays only
-for pages that changed. If a page fails (rate limit, refusal), it keeps the plain annotations and
+Answers are cached in `.agent-sitemap-cache.json` by a hash of each page's content, so a rebuild
+pays only for pages that changed. If a request fails, that page keeps its plain annotations and
 the build goes on.
+
+## Options
+
+| Option | Default | |
+| --- | --- | --- |
+| `--out <dir>` | `./ai` | where to write the map |
+| `--base <url>` | `<site>/ai/` | absolute URL the map is served from |
+| `--name <name>` | host name | site name in the map title |
+| `--max-pages <n>` | `500` | stop after this many pages from the sitemap |
+| `--exclude <path>` | | skip pages under this path; repeatable |
+| `--lang <ru\|en>` | detected | language of the map's own labels |
+| `--links <style>` | `absolute` | `absolute` URLs for agents on the web, or `relative` paths for a self-contained bundle |
+| `--llm` | off | hints from Claude, see above |
+| `--model <id>` | `claude-opus-5-5` | Claude model for `--llm` |
+| `--cache <file>` | `.agent-sitemap-cache.json` | where `--llm` keeps its answers |
+
+## Open Knowledge Format
+
+The map is an [Open Knowledge Format](https://github.com/GoogleCloudPlatform/open-knowledge-format)
+(OKF v0.2) bundle, so tools that read OKF can open it as is.
+
+- Every note's frontmatter carries the OKF fields `type` (`Web Page` or `Web Page Section`),
+  `title`, `description`, `resource` (the page URL) and `generated`, plus this tool's own keys:
+  `tokens`, `sections`, `page`, and `when` and `hints_by` after `--llm`.
+- `index.md` follows the OKF index format: only `okf_version` in its frontmatter and
+  `* [Title](url) - description` entries under headings.
+- With `--links relative`, links are paths inside the folder, so OKF tools see the graph and the
+  backlinks, and the bundle can live in git. The default absolute URLs suit agents on the web;
+  OKF tools read them as external links.
 
 ## Status
 
-This is an early prototype. Next steps:
+An early version. On small sites the navigation in each note can cost as much as the text
+itself, so the map pays off on larger sites and narrow questions. Next:
 
-- topic hubs
-- an eval: questions to the site, and how many hops and tokens the agent needs with and without
-  the map
-
-Requires Node 20+.
+- an eval: questions to a site, and the hops and tokens an agent needs with and without the map;
+- leaner notes, and token labels that count the whole note, not only its text;
+- a GitHub Action that rebuilds the map on every deploy;
+- topic hubs that gather sections across pages.
 
 ## Development
 
-The sources are TypeScript that Node 24 runs directly: `node src/cli.ts https://example.com`.
-`npm test` runs the tests, `npm run build` compiles `dist/` for the npm package (done
-automatically on `npm pack` and `npm publish`).
+The sources are TypeScript that Node 24 runs directly:
+
+```bash
+pnpm install
+node src/cli.ts https://example.com   # build a map from source
+pnpm test                             # tests
+pnpm build                            # compile dist/ (runs on npm pack and npm publish)
+```
+
+## License
+
+MIT. Made by [Deckard](https://deckardlab.tech), a studio that builds AI agents into company
+processes and keeps people in the loop.

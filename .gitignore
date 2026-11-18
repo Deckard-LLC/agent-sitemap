@@ -1,5 +1,5 @@
 node_modules/
 out/
-.site-graph-cache.json
+.agent-sitemap-cache.json
 dist/
 ai/

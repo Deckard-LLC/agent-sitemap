@@ -24,10 +24,10 @@ async function writeMap(links: "absolute" | "relative"): Promise<string> {
     name: "Example",
     lang: "en",
     generated: "2026-11-17T10:00:00Z",
-    producer: "site-graph/test",
+    producer: "agent-sitemap/test",
     links,
   });
-  const dir = await mkdtemp(join(tmpdir(), "site-graph-check-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-sitemap-check-"));
   for (const [path, content] of files) {
     await mkdir(dirname(join(dir, path)), { recursive: true });
     await writeFile(join(dir, path), content);
@@ -58,12 +58,12 @@ test("finds broken links, notes without a type and a non-OKF index", async () =>
 });
 
 test("build refuses to replace a folder that is not a map, before any request", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "site-graph-out-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-sitemap-out-"));
   await writeFile(join(dir, "notes.txt"), "someone's work");
   // An unroutable address: if the guard did not stop the build first, it would try to fetch.
   const result = await run("node", [cli, "https://example.invalid", "--out", dir]).catch((error) => error);
   assert.equal(result.code, 1);
-  assert.match(result.stderr, /already exists and is not a site-graph map/);
+  assert.match(result.stderr, /already exists and is not an agent-sitemap map/);
   assert.equal(await readFile(join(dir, "notes.txt"), "utf8"), "someone's work");
 });
 
@@ -74,5 +74,5 @@ test("check exits non-zero on problems and explains a missing map", async () => 
 
   const missing = await run("node", [cli, "check", join(dir, "nope")]).catch((error) => error);
   assert.equal(missing.code, 1);
-  assert.match(missing.stderr, /No map in .*Build one with: npx site-graph/);
+  assert.match(missing.stderr, /No map in .*Build one with: npx agent-sitemap/);
 });

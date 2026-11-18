@@ -1,12 +1,18 @@
 {
-  "name": "site-graph",
+  "name": "agent-sitemap",
   "version": "0.1.0",
-  "description": "Turns a website into a linked map of small Markdown notes that an AI agent can walk like an Obsidian vault.",
+  "description": "Turns your website into a linked Markdown map that AI agents can walk, opening only the pages they need.",
   "keywords": ["ai", "agents", "llm", "llms.txt", "markdown", "sitemap", "knowledge-graph", "okf"],
   "license": "MIT",
+  "homepage": "https://github.com/Laplace-LLC/agent-sitemap#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Laplace-LLC/agent-sitemap.git"
+  },
+  "bugs": "https://github.com/Laplace-LLC/agent-sitemap/issues",
   "type": "module",
   "bin": {
-    "site-graph": "./dist/cli.js"
+    "agent-sitemap": "./dist/cli.js"
   },
   "files": [
     "dist",

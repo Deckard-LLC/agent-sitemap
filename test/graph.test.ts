@@ -61,7 +61,7 @@ const options = {
   name: "Example",
   lang: "ru" as const,
   generated: "2026-11-16T10:00:00Z",
-  producer: "site-graph/test",
+  producer: "agent-sitemap/test",
 };
 
 test("renders absolute links and a backlink", () => {
@@ -90,7 +90,7 @@ for (const links of ["absolute", "relative"] as const) {
       assert.ok(fields, `${path} has frontmatter`);
       assert.match(String(fields.type), /^Web Page( Section)?$/, path);
       assert.ok(fields.title && fields.description && fields.resource, path);
-      assert.deepEqual(fields.generated, { by: "site-graph/test", at: "2026-11-16T10:00:00Z" }, path);
+      assert.deepEqual(fields.generated, { by: "agent-sitemap/test", at: "2026-11-16T10:00:00Z" }, path);
     }
 
     // index.md: frontmatter carries only okf_version; entries are «* [Title](url) - description».
