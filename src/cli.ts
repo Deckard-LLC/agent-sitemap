@@ -6,11 +6,11 @@
 import { appendFile, readdir, readFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { agentAnnotator, installedAgents, type Agent } from "./agents.ts";
+import { agentAnnotator, installedAgents, signIn, type Agent } from "./agents.ts";
 import { annotate, claudeAnnotator, DEFAULT_MODEL } from "./annotate.ts";
 import { checkMap } from "./check.ts";
 import { builtAgo, CONFIG_FILE, configOf, detect, loadConfig, saveConfig, type Config } from "./detect.ts";
-import { onboard } from "./onboard.ts";
+import { onboard, type LlmOption } from "./onboard.ts";
 import { discover, fetchAll } from "./fetch.ts";
 import { parseSource, readLocal } from "./local.ts";
 import { buildGraph } from "./graph.ts";
@@ -135,7 +135,7 @@ async function settings(again: boolean): Promise<Settings> {
     const interactive =
       (Boolean(process.stdin.isTTY && process.stdout.isTTY) && !process.env.CI && !values.yes) || process.env.AGENT_SITEMAP_INTERACTIVE === "1";
     if (interactive) {
-      config = await onboard(found, { agents: await installedAgents(), apiKey: Boolean(process.env.ANTHROPIC_API_KEY) });
+      config = await onboard(found, await modelsHere());
       if (!config) process.exit(1);
       console.log("");
     } else {
@@ -227,6 +227,16 @@ async function build(settings: Settings): Promise<void> {
     if (ready) how = settings.llm;
     else console.log(`\nHints from ${settings.llm} are set in ${CONFIG_FILE}, but ${settings.llm === "api" ? "ANTHROPIC_API_KEY is not set" : `${settings.llm} is not installed`}: building without them.`);
   }
+  // An agent that is not signed in would fail on every page: say it once, before the first request.
+  if (how && how !== "api") {
+    const status = await signIn(how);
+    if (!status.signedIn) {
+      const message = `${how === "claude" ? "Claude Code" : "Codex"} is installed but not signed in: run \`${status.hint}\`, then build again.`;
+      if (values.llm) fail(`\n${message}`);
+      console.log(`\n${message} Building without hints for now.`);
+      how = null;
+    }
+  }
   if (how) {
     hintsBy = how === "api" ? (values.model ?? DEFAULT_MODEL) : values.model ? `${how}/${values.model}` : how;
     console.log(`\nAnnotating ${[...graph.nodes.values()].filter((n) => n.type === "page").length} pages with ${how === "api" ? `the Claude API (${hintsBy})` : `the ${how} CLI`}`);
@@ -305,6 +315,21 @@ async function build(settings: Settings): Promise<void> {
 function display(path: string): string {
   const near = relative(process.cwd(), path) || ".";
   return near.startsWith("..") ? path : `./${near}`;
+}
+
+/** Models this machine can reach, for the first-run question: installed agents, signed in or not, and the API. */
+async function modelsHere(): Promise<LlmOption[]> {
+  const options: LlmOption[] = [];
+  for (const agent of await installedAgents()) {
+    const status = await signIn(agent);
+    options.push({
+      value: agent,
+      label: agent === "claude" ? "Claude Code, under your subscription" : "Codex, under your subscription",
+      ...(status.signedIn ? {} : { unavailable: `not signed in, run: ${status.hint}` }),
+    });
+  }
+  if (process.env.ANTHROPIC_API_KEY) options.push({ value: "api", label: "Claude API with ANTHROPIC_API_KEY, paid per page" });
+  return options;
 }
 
 /** How to reach a model for --llm: as asked, or the API with a key, else an agent CLI found on PATH. */

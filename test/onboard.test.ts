@@ -26,11 +26,19 @@ const posts = {
 };
 
 /** A fake Claude Code that answers every page with hints, as the real one does with --json-schema. */
-async function fakeClaude(): Promise<string> {
+async function fakeClaude(signedIn = true): Promise<string> {
   const bin = await mkdtemp(join(tmpdir(), "agent-sitemap-bin-"));
   await writeFile(
     join(bin, "claude"),
     `#!/usr/bin/env node
+if (process.argv[2] === "auth") {
+  console.log(JSON.stringify({ loggedIn: ${signedIn}, authMethod: ${signedIn ? '"claude.ai"' : '"none"'} }));
+  process.exit(0);
+}
+if (!${signedIn}) {
+  console.log(JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" }));
+  process.exit(1);
+}
 let input = "";
 process.stdin.on("data", (c) => (input += c));
 process.stdin.on("end", () => {
@@ -69,7 +77,7 @@ test("asks for the address, the pages and the model, and remembers the choice", 
   assert.equal(run.code, 0, run.stderr);
   assert.match(run.stdout, /1\/3 {2}Site address[\s\S]*found https:\/\/studio\.example\/ in public\/robots\.txt/);
   assert.match(run.stdout, /2 Markdown pages blog\/\*\/post\.md → \/blog\/\*\//);
-  assert.match(run.stdout, /1\) No model[\s\S]*2\) Claude Code on this machine/);
+  assert.match(run.stdout, /1\) No model[\s\S]*2\) Claude Code, under your subscription/);
   assert.doesNotMatch(run.stdout, /Codex on this machine|Claude API/); // only what is installed
 
   const config = JSON.parse(await readFile(join(cwd, "agent-sitemap.config.json"), "utf8"));
@@ -106,4 +114,23 @@ test("saves nothing when the pages are declined", async () => {
   assert.equal(run.code, 1);
   assert.match(run.stdout, /Nothing saved/);
   await assert.rejects(access(join(cwd, "agent-sitemap.config.json")));
+});
+
+test("an agent that is not signed in is shown but cannot be chosen, and the build says so once", async () => {
+  const cwd = await repo({ ...posts, "public/robots.txt": "Sitemap: https://studio.example/sitemap.xml\n" });
+  const bin = await fakeClaude(false);
+  const env = { PATH: `${bin}${delimiter}${process.env.PATH}` };
+  // Address, pages, then 2 (not signed in: refused), then Enter for «No model».
+  const run = await answer(cwd, ["", "", "2", ""], env);
+  assert.equal(run.code, 0, run.stderr);
+  assert.match(run.stdout, /2\) Claude Code, under your subscription \(not signed in, run: claude auth login\)/);
+  assert.equal(JSON.parse(await readFile(join(cwd, "agent-sitemap.config.json"), "utf8")).llm, "none");
+  assert.doesNotMatch(run.stdout, /Annotating/);
+
+  // Settings that ask for Claude while it is signed out: one line, then a map without hints.
+  const config = JSON.parse(await readFile(join(cwd, "agent-sitemap.config.json"), "utf8"));
+  await writeFile(join(cwd, "agent-sitemap.config.json"), JSON.stringify({ ...config, llm: "claude" }));
+  const build = await answer(cwd, [], env);
+  assert.match(build.stdout, /Claude Code is installed but not signed in: run `claude auth login`, then build again\. Building without hints for now\./);
+  assert.doesNotMatch(build.stdout, /failed {4}/);
 });

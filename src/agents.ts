@@ -18,8 +18,46 @@ export async function installedAgents(env = process.env): Promise<Agent[]> {
   return found;
 }
 
+export interface SignIn {
+  signedIn: boolean;
+  /** What to run to sign in. */
+  hint: string;
+}
+
+/**
+ * Whether the agent CLI is signed in, asked without spending anything: `claude auth status`,
+ * `codex login status`. When the CLI cannot say (an older version), it counts as signed in and
+ * the first request will tell.
+ */
+export async function signIn(agent: Agent): Promise<SignIn> {
+  const hint = agent === "claude" ? "claude auth login" : "codex login";
+  try {
+    if (agent === "claude") {
+      const status = JSON.parse(await run("claude", ["auth", "status"], "", undefined, 20_000)) as { loggedIn?: boolean };
+      return { signedIn: status.loggedIn !== false, hint };
+    }
+    const out = await run("codex", ["login", "status"], "", undefined, 20_000);
+    return { signedIn: !/not logged in/i.test(out), hint };
+  } catch (error) {
+    return { signedIn: !/not logged in|not signed in/i.test((error as Error).message), hint };
+  }
+}
+
+/** Errors that will not go away on the next page: stop asking after the first one. */
+const FATAL = /not logged in|please run \/login|not signed in|invalid api key|authentication|unauthorized|usage limit|rate limit reached for/i;
+
 export function agentAnnotator(agent: Agent, model?: string): Annotator {
-  return agent === "claude" ? claudeCode(model) : codex(model);
+  const annotate = agent === "claude" ? claudeCode(model) : codex(model);
+  let stopped: Error | null = null;
+  return async (input) => {
+    if (stopped) throw stopped;
+    try {
+      return await annotate(input);
+    } catch (error) {
+      if (FATAL.test((error as Error).message)) stopped = error as Error;
+      throw error;
+    }
+  };
 }
 
 function claudeCode(model?: string): Annotator {
@@ -73,15 +111,15 @@ function codex(model?: string): Annotator {
   };
 }
 
-function run(command: string, args: string[], stdin: string, cwd?: string): Promise<string> {
+function run(command: string, args: string[], stdin: string, cwd?: string, timeout = TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: cwd ?? tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error(`${command} gave no answer in ${TIMEOUT_MS / 60_000} minutes`));
-    }, TIMEOUT_MS);
+      reject(new Error(`${command} gave no answer in ${Math.round(timeout / 1000)} seconds`));
+    }, timeout);
     child.stdout.on("data", (chunk) => (stdout += chunk));
     child.stderr.on("data", (chunk) => (stderr += chunk));
     child.on("error", (error) => {

@@ -1,30 +1,51 @@
 // First run in a terminal: three short questions instead of flags. Each has an answer found in the
 // repository already, so Enter goes through: the site's address, the pages, and who writes hints.
+// In a terminal the questions are interactive (arrows to choose, Enter to confirm); with answers
+// piped in (scripts, tests) they are read line by line.
+import { confirm, input, select } from "@inquirer/prompts";
 import { createInterface } from "node:readline";
 import { configOf, CONFIG_FILE, type Config, type Detection, type LlmChoice } from "./detect.ts";
 
-export interface LlmOptions {
-  /** Agent CLIs found on PATH. */
-  agents: ("claude" | "codex")[];
-  /** ANTHROPIC_API_KEY is set. */
-  apiKey: boolean;
+export interface LlmOption {
+  value: Exclude<LlmChoice, "none">;
+  label: string;
+  /** Why it cannot be chosen now, with what to do about it. */
+  unavailable?: string;
 }
 
-const tty = process.stdout.isTTY;
+interface Choice<T> {
+  value: T;
+  label: string;
+  description?: string;
+  unavailable?: string;
+}
+
+/** The three kinds of question the onboarding asks. */
+interface Asker {
+  text(message: string, suggested: string, validate: (value: string) => string | true): Promise<string>;
+  yes(message: string): Promise<boolean>;
+  choose<T>(message: string, choices: Choice<T>[]): Promise<T>;
+  close(): void;
+}
+
+const tty = Boolean(process.stdout.isTTY);
 const bold = (s: string) => (tty ? `\x1b[1m${s}\x1b[22m` : s);
 const dim = (s: string) => (tty ? `\x1b[2m${s}\x1b[22m` : s);
 
 /** Asks, and returns the settings to save; null when the user stops. */
-export async function onboard(found: Detection, llm: LlmOptions): Promise<Config | null> {
-  const rl = lines();
+export async function onboard(found: Detection, models: LlmOption[]): Promise<Config | null> {
+  const ask = process.stdin.isTTY && tty ? interactive() : lines();
   try {
-    console.log(`\n${bold("agent-sitemap")}: a map of this site for AI agents. Three questions; Enter takes the suggested answer.\n`);
+    console.log(`\n${bold("agent-sitemap")} builds a map of this site for AI agents. Three questions; Enter takes the suggested answer.\n`);
 
     // 1. Address
     console.log(`${bold("1/3  Site address")}  ${dim("links in the map point under it")}`);
-    if (found.site) console.log(`     found ${found.site.url} in ${found.site.from}`);
-    else console.log(`     not found in the repository. No address yet? Leave it empty: links inside the map will be relative.`);
-    const site = await address(rl, found.site?.url ?? "");
+    console.log(
+      found.site
+        ? `     found ${found.site.url} in ${found.site.from}`
+        : `     not found in the repository. No address yet? Leave it empty: links inside the map will be relative.`,
+    );
+    const site = normalize(await ask.text("Site address", found.site?.url ?? "", (value) => (normalize(value) === null ? `«${value}» is not an address, e.g. https://example.com` : true)));
 
     // 2. Pages
     console.log(`\n${bold("2/3  Pages")}`);
@@ -36,67 +57,67 @@ export async function onboard(found: Detection, llm: LlmOptions): Promise<Config
     for (const source of found.sources) console.log(`     ${source.note}`);
     console.log(`     the map goes to ${found.out}${found.staticDir ? `, served with the site from ${found.staticDir}` : ""}`);
     if (found.llmsTxt) console.log(`     ${found.llmsTxt} gets one line pointing to the map`);
-    if (!(await yes(rl, "     Build the map from these?"))) {
+    if (!(await ask.yes("Build the map from these?"))) {
       console.log(`\nNothing saved. Write ${CONFIG_FILE} by hand (see the README) or run again.`);
       return null;
     }
 
     // 3. Hints
     console.log(`\n${bold("3/3  Hints from a model")}  ${dim("«read if…» next to every note, «why follow» next to every link")}`);
-    const choices: { value: LlmChoice; label: string }[] = [{ value: "none", label: "No model: hints are the first sentence of each note. Free, the same map every time" }];
-    if (llm.agents.includes("claude")) choices.push({ value: "claude", label: "Claude Code on this machine, under your subscription" });
-    if (llm.agents.includes("codex")) choices.push({ value: "codex", label: "Codex on this machine, under your subscription" });
-    if (llm.apiKey) choices.push({ value: "api", label: "Claude API, with ANTHROPIC_API_KEY: paid per page" });
+    const choices: Choice<LlmChoice>[] = [
+      { value: "none", label: "No model", description: "hints are the first sentence of each note; free, the same map every time" },
+      ...models.map((m) => ({ value: m.value, label: m.label, description: "one request per page, cached: rebuilds pay only for changed pages", unavailable: m.unavailable })),
+    ];
+    let llm: LlmChoice = "none";
     if (choices.length === 1) console.log(`     no Claude Code, Codex or ANTHROPIC_API_KEY here: the map is built without a model.`);
-    const choice = choices.length === 1 ? choices[0] : await pick(rl, choices);
-    if (choice.value !== "none") console.log(`     one request per page; answers are cached, so rebuilds pay only for changed pages`);
+    else llm = await ask.choose("Who writes the hints?", choices);
 
-    return { ...configOf(found, site), llm: choice.value };
-  } finally {
-    rl.close();
-  }
-}
-
-async function address(rl: Lines, suggested: string): Promise<string> {
-  for (;;) {
-    const answer = (await rl.ask(`     Address${suggested ? ` [${suggested}]` : ""}: `)).trim();
-    const value = answer || suggested;
-    if (!value) return "";
-    try {
-      const url = new URL(/^https?:\/\//.test(value) ? value : `https://${value}`);
-      return `${url.origin}/`;
-    } catch {
-      console.log(`     «${value}» is not an address, e.g. https://example.com`);
+    return { ...configOf(found, site ?? ""), llm };
+  } catch (error) {
+    // Ctrl+C in a prompt.
+    if ((error as Error).name === "ExitPromptError") {
+      console.log(`\nStopped. Nothing saved.`);
+      return null;
     }
+    throw error;
+  } finally {
+    ask.close();
   }
 }
 
-async function yes(rl: Lines, question: string): Promise<boolean> {
-  const answer = (await rl.ask(`${question} [Y/n]: `)).trim().toLowerCase();
-  return !answer || ["y", "yes", "д", "да"].includes(answer);
-}
-
-async function pick<T extends { label: string }>(rl: Lines, choices: T[]): Promise<T> {
-  choices.forEach((choice, i) => console.log(`     ${i + 1}) ${choice.label}`));
-  for (;;) {
-    const answer = (await rl.ask(`     Choose [1]: `)).trim();
-    if (!answer) return choices[0];
-    const n = Number(answer);
-    if (Number.isInteger(n) && n >= 1 && n <= choices.length) return choices[n - 1];
-    console.log(`     a number from 1 to ${choices.length}`);
+/** «example.com» → https://example.com/; empty stays empty; anything else is not an address. */
+function normalize(value: string): string | null {
+  const text = value.trim();
+  if (!text) return "";
+  try {
+    const url = new URL(/^https?:\/\//.test(text) ? text : `https://${text}`);
+    return url.hostname.includes(".") || url.hostname === "localhost" ? `${url.origin}/` : null;
+  } catch {
+    return null;
   }
 }
 
-interface Lines {
-  ask(prompt: string): Promise<string>;
-  close(): void;
+/** Prompts with arrows and a cursor, as in npm create and the NestJS CLI. */
+function interactive(): Asker {
+  const theme = { prefix: { idle: "    ", done: "    " } };
+  return {
+    text: (message, suggested, validate) => input({ message, default: suggested || undefined, validate, theme }),
+    yes: (message) => confirm({ message, default: true, theme }),
+    choose: <T,>(message: string, choices: Choice<T>[]) =>
+      select<T>({
+        message,
+        theme,
+        choices: choices.map((c) => ({ value: c.value, name: c.label, description: c.description, disabled: c.unavailable ?? false })),
+      }),
+    close: () => {},
+  };
 }
 
 /**
- * Answers line by line. Unlike readline's question(), a line that arrives before its question is
- * kept, so answers piped in (scripts, tests) are not lost; at the end of input every answer is empty.
+ * Answers line by line, for answers piped in. Unlike readline's question(), a line that arrives
+ * before its question is kept; at the end of input every answer is the suggested one.
  */
-function lines(): Lines {
+function lines(): Asker {
   const rl = createInterface({ input: process.stdin, terminal: false });
   const queue: string[] = [];
   const waiting: ((line: string) => void)[] = [];
@@ -106,12 +127,35 @@ function lines(): Lines {
     ended = true;
     for (const resolve of waiting.splice(0)) resolve("");
   });
+  const next = (prompt: string): Promise<string> => {
+    process.stdout.write(prompt);
+    if (queue.length) return Promise.resolve(queue.shift()!);
+    if (ended) return Promise.resolve("");
+    return new Promise((resolve) => waiting.push(resolve));
+  };
   return {
-    ask(prompt) {
-      process.stdout.write(prompt);
-      if (queue.length) return Promise.resolve(queue.shift()!);
-      if (ended) return Promise.resolve("");
-      return new Promise((resolve) => waiting.push(resolve));
+    async text(message, suggested, validate) {
+      for (;;) {
+        const value = (await next(`     ${message}${suggested ? ` [${suggested}]` : ""}: `)).trim() || suggested;
+        const verdict = validate(value);
+        if (verdict === true) return value;
+        console.log(`     ${verdict}`);
+      }
+    },
+    async yes(message) {
+      const answer = (await next(`     ${message} [Y/n]: `)).trim().toLowerCase();
+      return !answer || ["y", "yes", "д", "да"].includes(answer);
+    },
+    async choose<T>(message: string, choices: Choice<T>[]) {
+      console.log(`     ${message}`);
+      choices.forEach((c, i) => console.log(`     ${i + 1}) ${c.label}${c.unavailable ? ` (${c.unavailable})` : c.description ? `: ${c.description}` : ""}`));
+      for (;;) {
+        const answer = (await next(`     Choose [1]: `)).trim();
+        const n = answer ? Number(answer) : 1;
+        const choice = Number.isInteger(n) ? choices[n - 1] : undefined;
+        if (choice && !choice.unavailable) return choice.value;
+        console.log(choice ? `     ${choice.unavailable}` : `     a number from 1 to ${choices.length}`);
+      }
     },
     close: () => rl.close(),
   };

@@ -51,14 +51,18 @@ in, so Enter goes through:
      Build the map from these? [Y/n]:
 
 3/3  Hints from a model  «read if…» next to every note, «why follow» next to every link
-     1) No model: hints are the first sentence of each note. Free, the same map every time
-     2) Claude Code on this machine, under your subscription
-     Choose [1]:
+     Who writes the hints?
+❯ No model
+  Claude Code, under your subscription
+  Codex, under your subscription (not signed in, run: codex login)
+hints are the first sentence of each note; free, the same map every time
+↑↓ navigate • ⏎ select
 ```
 
-No address yet? Leave it empty: the links inside the map are then relative. The models offered are
-only those found on the machine: Claude Code, Codex, or the Claude API when `ANTHROPIC_API_KEY`
-is set. The choice is remembered. In CI, or with `--yes`, nothing is asked and the answers found
+Choose with the arrows and Enter. No address yet? Leave it empty: the links inside the map are then
+relative. The models offered are only those found on the machine: Claude Code, Codex, or the
+Claude API when `ANTHROPIC_API_KEY` is set. An agent that is installed but not signed in is
+shown greyed out with the command that signs it in. The choice is remembered. In CI, or with `--yes`, nothing is asked and the answers found
 are taken as they are.
 
 To find those answers, the first run looks at the repository:
@@ -98,7 +102,7 @@ Commit ./apps/web/public/ai and llms.txt and deploy with the site: the map opens
 
 Later runs read `agent-sitemap.config.json`. A rebuild rewrites only the notes whose content
 changed and deletes the notes of pages that are gone, so the diff shows exactly what changed. You
-need Node 20 or newer; no API key unless you want [hints from a model](#hints-from-claude).
+need Node 20.17 or newer; no API key unless you want [hints from a model](#hints-from-claude).
 
 Pages built by a framework come from its build folder, so build the site before the map when
 those pages change.
@@ -258,7 +262,8 @@ they are given and answer with the same JSON schema as the API. The model writes
 
 Answers are cached in `.agent-sitemap-cache.json` by a hash of each page's content, so a rebuild
 pays only for pages that changed. If a request fails, that page keeps its plain annotations and
-the build goes on.
+the build goes on. An agent that is not signed in is caught before the first request: the build
+names the command that signs it in (`claude auth login`, `codex login`) and goes on without hints.
 
 ## Options
 

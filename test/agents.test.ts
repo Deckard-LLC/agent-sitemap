@@ -89,3 +89,16 @@ test("finds agent CLIs on PATH", async () => {
   const bin = await fakeAgents({ codex: "" });
   assert.deepEqual(await installedAgents({ PATH: bin }), ["codex"]);
 });
+
+test("stops calling the agent after the first sign-in error", async () => {
+  const bin = await fakeAgents({
+    claude: `require("node:fs").appendFileSync(__dirname + "/calls", "x");
+console.log(JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" }));`,
+  });
+  const report = await withPath(bin, () =>
+    annotate(graph(), agentAnnotator("claude"), { cachePath: join(bin, "cache.json"), model: "claude", concurrency: 1 }),
+  );
+  assert.equal(report.failed.length, 2);
+  const { readFile } = await import("node:fs/promises");
+  assert.equal(await readFile(join(bin, "calls"), "utf8"), "x"); // one request, not one per page
+});
