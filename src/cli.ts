@@ -3,13 +3,14 @@
 // agent-sitemap <site-url> [options]                 build the map of any site from the web
 // agent-sitemap <site-url> --from <files> [options]  build it from the given files
 // agent-sitemap init | check [dir]                   find the settings again | check a built map
-import { appendFile, readdir, readFile } from "node:fs/promises";
+import { appendFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { agentAnnotator, installedAgents, login, signIn, type Agent } from "./agents.ts";
 import { annotate, claudeAnnotator, DEFAULT_MODEL, stopOnFatal } from "./annotate.ts";
 import { isPreset, PRESETS, presetAnnotator, saveToken, tokenFor } from "./openai.ts";
 import { checkMap } from "./check.ts";
+import { loadEval, report, runEval, saveRuns, startStand, TEMPLATE } from "./eval.ts";
 import { builtAgo, CONFIG_FILE, configOf, detect, loadConfig, saveConfig, type Config } from "./detect.ts";
 import { onboard, type LlmOption } from "./onboard.ts";
 import { discover, fetchAll } from "./fetch.ts";
@@ -33,6 +34,8 @@ Usage:
   agent-sitemap <site-url>           build the map of any site from the web, through its sitemap.xml
   agent-sitemap init                 find the settings again and save them to ${CONFIG_FILE}
   agent-sitemap check [dir]          check a built map
+  agent-sitemap eval [file]          measure the map: the same questions answered by an agent
+                                     without the map and with it (questions: agent-sitemap.eval.json)
 
 With no arguments, the first run finds the site's address, its pages (the built site and Markdown
 with a title) and the folder it serves as is. In a terminal it asks three questions with those
@@ -95,7 +98,7 @@ if (values.version) {
 }
 
 const [first, ...rest] = positionals;
-const command = first === "build" || first === "check" || first === "init" ? first : "build";
+const command = first === "build" || first === "check" || first === "init" || first === "eval" ? first : "build";
 const args = command === first ? rest : positionals;
 if (values.help) {
   console.log(USAGE);
@@ -104,6 +107,7 @@ if (values.help) {
 
 if (command === "check") await check(resolve(args[0] ?? (await loadConfig(process.cwd()).catch(() => null))?.out ?? DEFAULT_OUT));
 else if (command === "init") await settings(true);
+else if (command === "eval") await evaluate(args[0] ?? "agent-sitemap.eval.json");
 else await build(args[0] ? fromArguments(args[0]) : await settings(false));
 
 /** What a build needs, from the command line or from the repository. */
@@ -333,6 +337,48 @@ function display(path: string): string {
 }
 
 type How = Exclude<Config["llm"], "none" | undefined>;
+
+/** agent-sitemap eval: the questions file, the stand, the runs and the comparison. */
+async function evaluate(path: string): Promise<void> {
+  const file = resolve(path);
+  if (!(await readFile(file, "utf8").catch(() => null))) {
+    await writeFile(file, `${JSON.stringify(TEMPLATE, null, 2)}\n`);
+    console.log(
+      `Created ${display(file)}. Put 10–30 questions about the site in it: each with the answer a correct reply gives and,\n` +
+        `if you know it, the page that holds it. Then run agent-sitemap eval again.`,
+    );
+    return;
+  }
+  const questions = await loadEval(file).catch((error: Error) => fail(error.message));
+  const config = await loadConfig(process.cwd()).catch((error: Error) => fail(error.message));
+  if (!config) fail(`No ${CONFIG_FILE} here: build the map first with agent-sitemap.`);
+  if (!config.site) fail(`The eval compares with the live site, so ${CONFIG_FILE} needs "site".`);
+  const mapDir = resolve(values.out ?? config.out);
+  if (!(await readFile(join(mapDir, "index.md"), "utf8").catch(() => null))) fail(`No map in ${display(mapDir)}: build it first with agent-sitemap.`);
+  if (!(await installedAgents()).includes("claude")) fail("The eval runs the agent through Claude Code: install it (claude) and sign in.");
+  const status = await signIn("claude");
+  if (!status.signedIn) fail(`Claude Code is not signed in: run \`${status.hint}\`, then run the eval again.`);
+
+  const runs = questions.questions.length * 2 * (questions.runs ?? 1);
+  console.log(
+    `${questions.questions.length} questions × 2 starts (home page, map) × ${questions.runs ?? 1} = ${runs} agent runs, ` +
+      `and as many short checks of the answers, under your Claude Code subscription (model: ${questions.model ?? "sonnet"}).`,
+  );
+  if (process.stdin.isTTY && process.stdout.isTTY && !values.yes) {
+    const { confirm } = await import("@inquirer/prompts");
+    if (!(await confirm({ message: "Run them?", default: true }).catch(() => false))) process.exit(1);
+  }
+
+  const stand = await startStand(config.site, mapDir);
+  console.log(`\nStand: ${stand.origin} serves ${new URL(config.site).origin} and the map from ${display(mapDir)}\n`);
+  const done = await runEval(questions, stand, (run) =>
+    console.log(`  ${run.question} · ${run.condition}: ${run.verdict}, ${run.fetches} pages, ${run.inputTokens.toLocaleString("en-US")} tokens, ${run.seconds}s`),
+  );
+  await stand.close();
+  const out = file.replace(/\.json$/, "") + ".results.json";
+  await saveRuns(out, done);
+  console.log(`\n${report(done)}\n\nEvery run, with the pages it fetched and the answers: ${display(out)}`);
+}
 
 /**
  * Pages the live site has and the repository does not: its sitemap.xml against the files. They are

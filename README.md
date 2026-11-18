@@ -14,6 +14,7 @@
   <a href="#how-the-links-are-made">How the links are made</a> ·
   <a href="#publish-the-map">Publish the map</a> ·
   <a href="#hints-from-a-model">Hints from a model</a> ·
+  <a href="#measure-the-map">Measure the map</a> ·
   <a href="#for-ai-agents">For AI agents</a>
 </p>
 
@@ -345,6 +346,65 @@ pays only for pages that changed. If a request fails, that page keeps its plain 
 the build goes on. An agent that is not signed in is caught before the first request: the build
 names the command that signs it in (`claude auth login`, `codex login`) and goes on without hints.
 
+## Measure the map
+
+Does the map help an agent on your site? `eval` answers the same questions twice: once starting
+at the home page, once starting at the map, and compares.
+
+```bash
+pnpm agent-sitemap eval
+```
+
+The first time it creates `agent-sitemap.eval.json` to fill in: 10–30 questions a visitor might
+ask, each with the answer a correct reply gives and, if you know it, the page that holds it. Mix
+questions answered on one page, questions that need two pages, and questions the site does not
+answer.
+
+```json
+{
+  "runs": 1,
+  "model": "sonnet",
+  "questions": [
+    { "id": "pilot", "question": "What should be written down before a pilot starts?", "answer": "The process owner, the success criteria and …", "page": "/blog/pilot/" }
+  ]
+}
+```
+
+Then it:
+
+1. starts a local stand that serves the live site and the map under one address and logs every
+   page fetched;
+2. runs Claude Code as the agent, with `curl` as its only tool, once from the home page and once
+   from `/ai/index.md`, `runs` times per question (the agent is told the site serves Markdown, the
+   best case without a map);
+3. has Claude Code grade each answer against the reference: correct, partial or wrong;
+4. prints each run as it ends, then the comparison, and saves every run with the pages it
+   fetched and the answers to `agent-sitemap.eval.results.json`.
+
+A run on [deckardlab.tech](https://deckardlab.tech) with two questions whose answers sit deep in long
+posts:
+
+```text
+question           start   answer  fetches  chars read  tokens in  turns  time   cost
+developer          no map  ✓       5        37,728      31,828     4      14s    $0.047
+developer          map     ✓       3        12,890      33,029     4      14s    $0.046
+ship               no map  ✓       4        20,711      30,983     4      15s    $0.051
+ship               map     ✓       3        11,737      31,958     4      15s    $0.043
+
+Correct answers: 2/2 without the map, 2/2 with it.
+With the map, on average: tokens +3%, pages fetched -33%, text read -58%, time 0%, cost -9%.
+```
+
+With the map the agent went straight to the section: index, post, section. Without it, it read
+the home page, the sitemap and whole posts. «Tokens in» also counts the agent's own instructions on
+every turn, so it follows the number of turns: in an earlier run the agent without the map took
+8 turns instead of 4, and the map saved 61% of the tokens. Two questions and one run are a first
+signal, not a result: use 10–30 questions and a few runs before drawing conclusions.
+
+Before it starts it says how many runs it will make: they count against your Claude Code
+subscription. It needs Claude Code installed and signed in, the map built and `site` in the
+settings. A reached usage limit stops the eval and says so.
+
 ## Options
 
 | Option | Default | |
@@ -383,7 +443,7 @@ The map is an [Open Knowledge Format](https://github.com/GoogleCloudPlatform/ope
 An early version. On small sites the navigation in each note can cost as much as the text
 itself, so the map pays off on larger sites and narrow questions. Next:
 
-- an eval: questions to a site, and the hops and tokens an agent needs with and without the map;
+- more agents for `eval` (Codex, the APIs) and questions written by a model from the map;
 - leaner notes, and token labels that count the whole note, not only its text;
 - a GitHub Action that rebuilds the map on every deploy;
 - a library API, for building the map from code;
