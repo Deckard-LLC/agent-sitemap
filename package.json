@@ -13,12 +13,12 @@
     "okf"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/Laplace-LLC/agent-sitemap#readme",
+  "homepage": "https://github.com/Deckard-LLC/agent-sitemap#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Laplace-LLC/agent-sitemap.git"
+    "url": "git+https://github.com/Deckard-LLC/agent-sitemap.git"
   },
-  "bugs": "https://github.com/Laplace-LLC/agent-sitemap/issues",
+  "bugs": "https://github.com/Deckard-LLC/agent-sitemap/issues",
   "type": "module",
   "bin": {
     "agent-sitemap": "dist/cli.js"

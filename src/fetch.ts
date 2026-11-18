@@ -3,7 +3,7 @@
 // to converting the HTML's main content.
 import TurndownService from "turndown";
 
-const USER_AGENT = "agent-sitemap (map builder for AI agents; +https://github.com/Laplace-LLC/agent-sitemap)";
+const USER_AGENT = "agent-sitemap (map builder for AI agents; +https://github.com/Deckard-LLC/agent-sitemap)";
 
 export interface FetchedPage {
   url: string;

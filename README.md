@@ -168,8 +168,8 @@ Pages are read as Markdown when the site offers it, and converted from HTML othe
    # 115 notes, 901 links between them: 0 problems, 0 warnings — a valid OKF 0.2 map
    ```
 
-The build replaces `--out` completely, so it refuses to write into a folder that is not an
-earlier map.
+The build deletes notes of pages that are gone from `--out`, so it refuses to write into a
+folder that is not an earlier map.
 
 ## Hints from Claude
 
@@ -254,6 +254,10 @@ node src/cli.ts https://example.com   # build a map from source
 pnpm test                             # tests
 pnpm build                            # compile dist/ (runs on npm pack and npm publish)
 ```
+
+To release, bump `version` in `package.json` and push to `main`. The
+[Publish](.github/workflows/publish.yml) workflow runs the tests and publishes the new version to
+npm and to GitHub Packages; a push without a new version publishes nothing.
 
 ## License
 

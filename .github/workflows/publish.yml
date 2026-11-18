@@ -1,18 +1,23 @@
 name: Publish
 
-# A GitHub release publishes the version in package.json:
-# - to npm as agent-sitemap, through npm trusted publishing (no token; configure the package's
-#   Trusted Publisher on npmjs.com: Laplace-LLC / agent-sitemap / publish.yml);
-# - to GitHub Packages as @laplace-llc/agent-sitemap, which lists it on the repository page.
-# Run it by hand to publish the current version to GitHub Packages only.
+# Every push to main runs the tests. When package.json carries a version that is not published yet,
+# the push also publishes it, so a release is: bump the version, push.
+# - npm, as agent-sitemap, through npm trusted publishing: no token, but the package's Trusted
+#   Publisher on npmjs.com must name Deckard-LLC / agent-sitemap / publish.yml.
+# - GitHub Packages, as @deckard-llc/agent-sitemap, which lists it on the repository page.
+# A version that is already published is skipped, so pushes without a version bump publish nothing.
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -31,7 +36,6 @@ jobs:
       - run: pnpm test
 
   npm:
-    if: github.event_name == 'release'
     needs: test
     runs-on: ubuntu-24.04
     permissions:
@@ -47,8 +51,17 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: npm publish
+      - id: check
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "agent-sitemap@$version" version >/dev/null 2>&1; then
+            echo "agent-sitemap@$version is already on npm"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.check.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.check.outputs.skip != 'true'
+        run: npm publish
 
   github-packages:
     needs: test
@@ -56,6 +69,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -65,11 +80,18 @@ jobs:
         with:
           node-version: 24
           registry-url: https://npm.pkg.github.com
-          scope: "@laplace-llc"
+          scope: "@deckard-llc"
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
       # GitHub Packages takes only names scoped to the owner of the repository.
-      - run: npm pkg set name=@laplace-llc/agent-sitemap
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm pkg set name=@deckard-llc/agent-sitemap
+      - id: check
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@deckard-llc/agent-sitemap@$version" version >/dev/null 2>&1; then
+            echo "@deckard-llc/agent-sitemap@$version is already on GitHub Packages"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.check.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.check.outputs.skip != 'true'
+        run: npm publish
