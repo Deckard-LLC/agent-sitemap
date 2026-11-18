@@ -61,12 +61,12 @@ the `llms.txt` that will point to it.
 **Step 3 of 3 · Hints from a model.** Choose with ↑ ↓ and Enter who writes the «read if…» and
 «why follow» hints next to the links:
 
-| Option | Costs | What happens when you choose it |
-| --- | --- | --- |
-| No model | free | hints are the first sentence of each note; the same map on every run |
-| Claude Code, Codex | your subscription | shown when installed; if not signed in, the sign-in (`claude auth login`, `codex login`) opens right there |
-| DeepSeek, Kimi, OpenRouter | paid per request | the token is asked once and kept in `~/.config/agent-sitemap/`, never in the repository |
-| Claude API | paid per request | shown when `ANTHROPIC_API_KEY` is set |
+- **No model**: free. Hints are the first sentence of each note; the same map on every run.
+- **Claude Code, Codex**: your subscription. Shown when installed; if not signed in, choosing one
+  opens its sign-in (`claude auth login`, `codex login`) right there.
+- **DeepSeek, Kimi, OpenRouter**: paid per request. The token is asked once and kept in
+  `~/.config/agent-sitemap/`, never in the repository.
+- **Claude API**: paid per request. Shown when `ANTHROPIC_API_KEY` is set.
 
 **Then** the map is built: a progress bar runs while the model writes the hints, and the build
 ends with what to do next.
