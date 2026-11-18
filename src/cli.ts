@@ -59,6 +59,7 @@ Options:
                      default: the one set on the first run; with --llm alone, the first one available
   --model <id>       model for --llm (default: ${DEFAULT_MODEL} for the API, the agent's own default otherwise)
   --cache <file>     LLM results by content hash; unchanged pages cost nothing (default: .agent-sitemap-cache.json)
+  --offline          build from the repository only: do not fill in pages from the live site
   -y, --yes          first run: take what was found, ask nothing
   -v, --version      print the version
   -h, --help         print this help`;
@@ -79,6 +80,7 @@ const { values, positionals } = parseArgs({
     model: { type: "string" },
     cache: { type: "string", default: ".agent-sitemap-cache.json" },
     yes: { type: "boolean", short: "y" },
+    offline: { type: "boolean", default: false },
     version: { type: "boolean", short: "v" },
     help: { type: "boolean", short: "h" },
   },
@@ -113,6 +115,8 @@ interface Settings {
   llmsTxt?: string;
   /** The model chosen in the settings; --llm on the command line wins. */
   llm?: How;
+  /** Fill in from the live site's sitemap.xml the pages the files do not have. */
+  fromSite?: boolean;
   /** No address: links inside the map are relative, pages are named by their path. */
   siteless?: boolean;
 }
@@ -167,6 +171,7 @@ async function settings(again: boolean): Promise<Settings> {
     exclude: [...(config.exclude ?? []), ...values.exclude!],
     name: values.name ?? config.name ?? (config.site ? undefined : basename(cwd)),
     llmsTxt: config.llmsTxt,
+    fromSite: Boolean(config.site) && config.fromSite !== false && !values.offline,
     llm: config.llm && config.llm !== "none" ? config.llm : undefined,
   };
 }
@@ -210,6 +215,7 @@ async function build(settings: Settings): Promise<void> {
     for (const page of kept) console.log(`  ${page.file.padEnd(40)} → ${new URL(page.url).pathname}`);
     if (!kept.length) fail("No pages to map: every file matched was skipped or excluded.");
     pages = kept.map((page) => parsePage(page.url, page.markdown, { summary: page.description }));
+    if (settings.fromSite) pages.push(...(await fromLiveSite(site, new Set(pages.map((p) => p.key)), isExcluded)));
   } else {
     console.log(`Sitemap of ${site.origin}`);
     const urls = (await discover(site, Number(values["max-pages"]))).filter((url) => !isExcluded(url));
@@ -326,6 +332,29 @@ function display(path: string): string {
 
 type How = Exclude<Config["llm"], "none" | undefined>;
 const HOWS: How[] = ["api", "claude", "codex", "deepseek", "kimi", "openrouter"];
+
+/**
+ * Pages the live site has and the repository does not: its sitemap.xml against the files. They are
+ * read from the site (as Markdown when it offers it). A site out of reach leaves the map as it is.
+ */
+async function fromLiveSite(site: URL, have: Set<string>, isExcluded: (url: string) => boolean): Promise<Page[]> {
+  let urls: string[];
+  try {
+    urls = await discover(site, Number(values["max-pages"]));
+  } catch (error) {
+    console.log(`\nCould not read ${site.origin}/sitemap.xml (${(error as Error).message}): the map has the repository's pages only.`);
+    return [];
+  }
+  const missing = urls.filter((url) => !have.has(pageKey(url)) && !isExcluded(url));
+  if (!missing.length) {
+    console.log(`\nEvery page in ${site.origin}/sitemap.xml is in the repository.`);
+    return [];
+  }
+  console.log(`\nFrom ${site.origin}: ${missing.length} ${missing.length === 1 ? "page is" : "pages are"} on the site but not in the repository`);
+  const fetched = await fetchAll(missing, 4, console.log);
+  if (fetched.length < missing.length) console.log(`  ${missing.length - fetched.length} could not be read: they stay out of the map`);
+  return fetched.map((page) => parsePage(page.url, page.markdown));
+}
 
 /** Models for the first-run question: agents found here (signed in or not), the Claude API with a key, the presets. */
 async function modelsHere(): Promise<LlmOption[]> {

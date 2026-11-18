@@ -24,6 +24,11 @@ export interface Config {
   llmsTxt?: string;
   /** Who writes the hints: a model reached through the API or an agent CLI, or none. */
   llm?: LlmChoice;
+  /**
+   * Also take from the live site what the repository does not have: pages in its sitemap.xml that
+   * no file covers (posts published from elsewhere, pages a server renders). On by default with an address.
+   */
+  fromSite?: boolean;
 }
 
 export interface Detection {

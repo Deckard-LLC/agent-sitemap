@@ -106,6 +106,11 @@ Commit ./apps/web/public/ai and llms.txt and deploy with the site: the map opens
 
 <sub>A real first run in the repository of <a href="https://deckardlab.tech">deckardlab.tech</a>, abridged.</sub>
 
+Then it compares the result with the live site's `sitemap.xml`: pages that are on the site but in
+no file of the repository (posts published from another machine, pages a server renders) are read
+from the site, as Markdown when it offers it. Only those are fetched; a site out of reach leaves
+the map to the repository. `--offline`, or `"fromSite": false` in the settings, skips this.
+
 Later runs read `agent-sitemap.config.json`. A rebuild rewrites only the notes whose content
 changed and deletes the notes of pages that are gone, so the diff shows exactly what changed. You
 need Node 20.17 or newer; no API key unless you want [hints from a model](#hints-from-claude).
@@ -144,6 +149,7 @@ as is) and skips pages that are not public: `draft: true`, `status: draft` (also
 Built pages with next to no text (search-console verification files) and the map's own copy in
 the build are skipped.
 
+`fromSite` (on when `site` is set) fills in from the live site what the files do not have.
 `agent-sitemap init` asks the questions again and rewrites the file.
 
 ### Any site, from the web
@@ -283,6 +289,7 @@ names the command that signs it in (`claude auth login`, `codex login`) and goes
 
 | Option | Default | |
 | --- | --- | --- |
+| `--offline` | off | build from the repository only, without filling in pages from the live site |
 | `--from <files>` | from the settings | read pages from these files; repeatable, see [the settings file](#the-settings-file) |
 | `--out <dir>` | from the settings, else `./ai` | where to write the map |
 | `--base <url>` | `<site>/ai/` | absolute URL the map is served from |

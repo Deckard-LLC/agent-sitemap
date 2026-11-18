@@ -1,6 +1,6 @@
 {
   "name": "agent-sitemap",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Turns your website into a linked Markdown map that AI agents can walk, opening only the pages they need.",
   "keywords": [
     "ai",
