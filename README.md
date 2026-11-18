@@ -54,15 +54,16 @@ in, so Enter goes through:
      Who writes the hints?
 ❯ No model
   Claude Code, under your subscription
-  Codex, under your subscription (not signed in, run: codex login)
+  Codex, under your subscription · sign in first
 hints are the first sentence of each note; free, the same map every time
 ↑↓ navigate • ⏎ select
 ```
 
 Choose with the arrows and Enter. No address yet? Leave it empty: the links inside the map are then
 relative. The models offered are only those found on the machine: Claude Code, Codex, or the
-Claude API when `ANTHROPIC_API_KEY` is set. An agent that is installed but not signed in is
-shown greyed out with the command that signs it in. The choice is remembered. In CI, or with `--yes`, nothing is asked and the answers found
+Claude API when `ANTHROPIC_API_KEY` is set. An agent that is installed but not signed in
+can be chosen too: the onboarding runs its sign-in (`claude auth login`, `codex login`) right in
+the terminal and goes on. The choice is remembered. In CI, or with `--yes`, nothing is asked and the answers found
 are taken as they are.
 
 To find those answers, the first run looks at the repository:

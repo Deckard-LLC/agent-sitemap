@@ -25,17 +25,28 @@ const posts = {
   "blog/payback/post.md": `---\ntitle: Will an agent pay off\n---\n\n${text("payback")}`,
 };
 
-/** A fake Claude Code that answers every page with hints, as the real one does with --json-schema. */
-async function fakeClaude(signedIn = true): Promise<string> {
+/**
+ * A fake Claude Code that answers every page with hints, as the real one does with --json-schema.
+ * «signed-in» from the start; «login-works»: `auth login` signs it in; «login-fails»: it stays out.
+ */
+async function fakeClaude(mode: "signed-in" | "login-works" | "login-fails" = "signed-in"): Promise<string> {
   const bin = await mkdtemp(join(tmpdir(), "agent-sitemap-bin-"));
+  if (mode === "signed-in") await writeFile(join(bin, "signed-in"), "");
   await writeFile(
     join(bin, "claude"),
     `#!/usr/bin/env node
-if (process.argv[2] === "auth") {
-  console.log(JSON.stringify({ loggedIn: ${signedIn}, authMethod: ${signedIn ? '"claude.ai"' : '"none"'} }));
+const fs = require("node:fs");
+const marker = __dirname + "/signed-in";
+if (process.argv[2] === "auth" && process.argv[3] === "login") {
+  console.log("Opening the browser to sign in…");
+  if (${JSON.stringify(mode)} === "login-works") fs.writeFileSync(marker, "");
   process.exit(0);
 }
-if (!${signedIn}) {
+if (process.argv[2] === "auth") {
+  console.log(JSON.stringify({ loggedIn: fs.existsSync(marker) }));
+  process.exit(0);
+}
+if (!fs.existsSync(marker)) {
   console.log(JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" }));
   process.exit(1);
 }
@@ -116,21 +127,26 @@ test("saves nothing when the pages are declined", async () => {
   await assert.rejects(access(join(cwd, "agent-sitemap.config.json")));
 });
 
-test("an agent that is not signed in is shown but cannot be chosen, and the build says so once", async () => {
+test("choosing an agent that is not signed in signs in right there, then builds with it", async () => {
   const cwd = await repo({ ...posts, "public/robots.txt": "Sitemap: https://studio.example/sitemap.xml\n" });
-  const bin = await fakeClaude(false);
+  const bin = await fakeClaude("login-works");
   const env = { PATH: `${bin}${delimiter}${process.env.PATH}` };
-  // Address, pages, then 2 (not signed in: refused), then Enter for «No model».
-  const run = await answer(cwd, ["", "", "2", ""], env);
+  const run = await answer(cwd, ["", "", "2"], env);
   assert.equal(run.code, 0, run.stderr);
-  assert.match(run.stdout, /2\) Claude Code, under your subscription \(not signed in, run: claude auth login\)/);
-  assert.equal(JSON.parse(await readFile(join(cwd, "agent-sitemap.config.json"), "utf8")).llm, "none");
-  assert.doesNotMatch(run.stdout, /Annotating/);
+  assert.match(run.stdout, /2\) Claude Code, under your subscription · sign in first: not signed in yet: choosing it runs claude auth login here, then goes on/);
+  assert.match(run.stdout, /Signing in: claude auth login[\s\S]*Opening the browser to sign in…[\s\S]*Signed in\./);
+  assert.match(run.stdout, /Annotating 2 pages with the claude CLI/);
+  assert.equal(JSON.parse(await readFile(join(cwd, "agent-sitemap.config.json"), "utf8")).llm, "claude");
+});
 
-  // Settings that ask for Claude while it is signed out: one line, then a map without hints.
-  const config = JSON.parse(await readFile(join(cwd, "agent-sitemap.config.json"), "utf8"));
-  await writeFile(join(cwd, "agent-sitemap.config.json"), JSON.stringify({ ...config, llm: "claude" }));
-  const build = await answer(cwd, [], env);
-  assert.match(build.stdout, /Claude Code is installed but not signed in: run `claude auth login`, then build again\. Building without hints for now\./);
-  assert.doesNotMatch(build.stdout, /failed {4}/);
+test("when the sign-in does not work out, the map is built without hints and the build says why once", async () => {
+  const cwd = await repo({ ...posts, "public/robots.txt": "Sitemap: https://studio.example/sitemap.xml\n" });
+  const bin = await fakeClaude("login-fails");
+  const env = { PATH: `${bin}${delimiter}${process.env.PATH}` };
+  const run = await answer(cwd, ["", "", "2"], env);
+  assert.equal(run.code, 0, run.stderr);
+  assert.match(run.stdout, /Still not signed in\. The choice is saved; until you run claude auth login, the map is built without hints\./);
+  assert.match(run.stdout, /Claude Code is installed but not signed in: run `claude auth login`, then build again\. Building without hints for now\./);
+  assert.doesNotMatch(run.stdout, /failed {4}|Annotating/);
+  assert.equal(JSON.parse(await readFile(join(cwd, "agent-sitemap.config.json"), "utf8")).llm, "claude");
 });

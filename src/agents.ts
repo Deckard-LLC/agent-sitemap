@@ -43,6 +43,20 @@ export async function signIn(agent: Agent): Promise<SignIn> {
   }
 }
 
+/**
+ * Runs the agent's own sign-in in this terminal (it opens the browser and waits), then asks again
+ * whether it is signed in.
+ */
+export async function login(agent: Agent): Promise<boolean> {
+  const args = agent === "claude" ? ["auth", "login"] : ["login"];
+  await new Promise<void>((resolve) => {
+    const child = spawn(agent, args, { stdio: "inherit" });
+    child.on("error", () => resolve());
+    child.on("close", () => resolve());
+  });
+  return (await signIn(agent)).signedIn;
+}
+
 /** Errors that will not go away on the next page: stop asking after the first one. */
 const FATAL = /not logged in|please run \/login|not signed in|invalid api key|authentication|unauthorized|usage limit|rate limit reached for/i;
 

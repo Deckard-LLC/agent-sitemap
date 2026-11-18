@@ -6,7 +6,7 @@
 import { appendFile, readdir, readFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { agentAnnotator, installedAgents, signIn, type Agent } from "./agents.ts";
+import { agentAnnotator, installedAgents, login, signIn, type Agent } from "./agents.ts";
 import { annotate, claudeAnnotator, DEFAULT_MODEL } from "./annotate.ts";
 import { checkMap } from "./check.ts";
 import { builtAgo, CONFIG_FILE, configOf, detect, loadConfig, saveConfig, type Config } from "./detect.ts";
@@ -325,7 +325,7 @@ async function modelsHere(): Promise<LlmOption[]> {
     options.push({
       value: agent,
       label: agent === "claude" ? "Claude Code, under your subscription" : "Codex, under your subscription",
-      ...(status.signedIn ? {} : { unavailable: `not signed in, run: ${status.hint}` }),
+      ...(status.signedIn ? {} : { signIn: { hint: status.hint, run: () => login(agent) } }),
     });
   }
   if (process.env.ANTHROPIC_API_KEY) options.push({ value: "api", label: "Claude API with ANTHROPIC_API_KEY, paid per page" });

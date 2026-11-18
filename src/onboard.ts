@@ -9,8 +9,8 @@ import { configOf, CONFIG_FILE, type Config, type Detection, type LlmChoice } fr
 export interface LlmOption {
   value: Exclude<LlmChoice, "none">;
   label: string;
-  /** Why it cannot be chosen now, with what to do about it. */
-  unavailable?: string;
+  /** Not signed in yet: the command that signs in, and a way to run it right away. */
+  signIn?: { hint: string; run: () => Promise<boolean> };
 }
 
 interface Choice<T> {
@@ -66,11 +66,28 @@ export async function onboard(found: Detection, models: LlmOption[]): Promise<Co
     console.log(`\n${bold("3/3  Hints from a model")}  ${dim("«read if…» next to every note, «why follow» next to every link")}`);
     const choices: Choice<LlmChoice>[] = [
       { value: "none", label: "No model", description: "hints are the first sentence of each note; free, the same map every time" },
-      ...models.map((m) => ({ value: m.value, label: m.label, description: "one request per page, cached: rebuilds pay only for changed pages", unavailable: m.unavailable })),
+      ...models.map((m) => ({
+        value: m.value,
+        label: m.signIn ? `${m.label} · sign in first` : m.label,
+        description: m.signIn
+          ? `not signed in yet: choosing it runs ${m.signIn.hint} here, then goes on`
+          : "one request per page, cached: rebuilds pay only for changed pages",
+      })),
     ];
     let llm: LlmChoice = "none";
     if (choices.length === 1) console.log(`     no Claude Code, Codex or ANTHROPIC_API_KEY here: the map is built without a model.`);
     else llm = await ask.choose("Who writes the hints?", choices);
+
+    const chosen = models.find((m) => m.value === llm);
+    if (chosen?.signIn) {
+      console.log(`\n     Signing in: ${chosen.signIn.hint}\n`);
+      const ok = await chosen.signIn.run();
+      console.log(
+        ok
+          ? `\n     Signed in.`
+          : `\n     Still not signed in. The choice is saved; until you run ${chosen.signIn.hint}, the map is built without hints.`,
+      );
+    }
 
     return { ...configOf(found, site ?? ""), llm };
   } catch (error) {
