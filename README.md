@@ -55,16 +55,21 @@ in, so Enter goes through:
 ❯ No model
   Claude Code, under your subscription
   Codex, under your subscription · sign in first
+  DeepSeek API, deepseek-flash · token needed
+  Kimi API (Moonshot), kimi-k3 · token needed
+  OpenRouter: any model with one token, deepseek/deepseek-v4.1-flash · token needed
 hints are the first sentence of each note; free, the same map every time
 ↑↓ navigate • ⏎ select
 ```
 
 Choose with the arrows and Enter. No address yet? Leave it empty: the links inside the map are then
-relative. The models offered are only those found on the machine: Claude Code, Codex, or the
-Claude API when `ANTHROPIC_API_KEY` is set. An agent that is installed but not signed in
-can be chosen too: the onboarding runs its sign-in (`claude auth login`, `codex login`) right in
-the terminal and goes on. The choice is remembered. In CI, or with `--yes`, nothing is asked and the answers found
-are taken as they are.
+relative.
+
+The models offered: Claude Code and Codex when they are installed (if not signed in, choosing one
+runs its sign-in, `claude auth login` or `codex login`, right in the terminal), the Claude API
+when `ANTHROPIC_API_KEY` is set, and DeepSeek, Kimi and OpenRouter always: choosing one without a
+token asks for it once. The choice is remembered. In CI, or with `--yes`, nothing is asked and
+the answers found are taken as they are.
 
 To find those answers, the first run looks at the repository:
 
@@ -246,12 +251,18 @@ reaches a model in one of three ways (`--llm-with`):
 
 | `--llm-with` | Model | You need |
 | --- | --- | --- |
-| `api` | the Claude API, `claude-opus-5-5` unless `--model` says otherwise | `ANTHROPIC_API_KEY` |
-| `claude` | [Claude Code](https://claude.com/claude-code) on this machine (`claude -p`) | `claude` installed and signed in |
-| `codex` | [Codex](https://github.com/openai/codex) on this machine (`codex exec`) | `codex` installed and signed in |
+| `claude` | [Claude Code](https://claude.com/claude-code) on this machine (`claude -p`), its default model | `claude` installed and signed in |
+| `codex` | [Codex](https://github.com/openai/codex) on this machine (`codex exec`), its default model | `codex` installed and signed in |
+| `api` | the Claude API, `claude-opus-5-5` | `ANTHROPIC_API_KEY` |
+| `deepseek` | the DeepSeek API, `deepseek-flash` | a token: `DEEPSEEK_API_KEY` |
+| `kimi` | the Kimi API (Moonshot), `kimi-k3` | a token: `MOONSHOT_API_KEY` |
+| `openrouter` | [OpenRouter](https://openrouter.ai), `deepseek/deepseek-v4.1-flash`; any of its models with `--model` | a token: `OPENROUTER_API_KEY` |
 
-Without `--llm-with`, the build uses the API when `ANTHROPIC_API_KEY` is set, else Claude Code,
-else Codex. The agents run with no tools, in a read-only sandbox for Codex: they read the page
+Address and model are built in; `--model` picks another. A token comes from its environment
+variable or is entered once during the first run: it is then kept in
+`~/.config/agent-sitemap/credentials.json`, readable by you only, never in the repository.
+Without `--llm-with`, the build uses the model chosen on the first run; with `--llm` alone, the
+first one available: the Claude API with a key, an installed agent, a provider with a token. The agents run with no tools, in a read-only sandbox for Codex: they read the page
 they are given and answer with the same JSON schema as the API. The model writes:
 
 - **when to read** each page and section, shown next to every link to it:
@@ -260,6 +271,8 @@ they are given and answer with the same JSON schema as the API. The model writes
 - **a factual summary** for each note;
 - **which similarity links to drop**: those that only share words. Links written by the site's
   authors are always kept.
+
+In a terminal the pass shows a progress bar: `⠹ ▕████████░░░░░░░░▏ 7/21 · 0:42 · blog/price`.
 
 Answers are cached in `.agent-sitemap-cache.json` by a hash of each page's content, so a rebuild
 pays only for pages that changed. If a request fails, that page keeps its plain annotations and

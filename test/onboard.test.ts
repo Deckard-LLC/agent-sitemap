@@ -69,7 +69,11 @@ process.stdin.on("end", () => {
 /** Runs the CLI as if in a terminal, typing the given answers one per line. */
 function answer(cwd: string, lines: string[], env: Record<string, string> = {}): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn("node", [cli], { cwd, env: { ...process.env, AGENT_SITEMAP_INTERACTIVE: "1", ANTHROPIC_API_KEY: "", ...env } });
+    const child = spawn("node", [cli], {
+      cwd,
+      // A config home of its own: tokens saved by a test never reach the user's, and theirs never leak in.
+      env: { ...process.env, AGENT_SITEMAP_INTERACTIVE: "1", ANTHROPIC_API_KEY: "", DEEPSEEK_API_KEY: "", MOONSHOT_API_KEY: "", OPENROUTER_API_KEY: "", XDG_CONFIG_HOME: join(cwd, ".config-home"), ...env },
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (c) => (stdout += c));

@@ -7,7 +7,8 @@ import { appendFile, readdir, readFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { agentAnnotator, installedAgents, login, signIn, type Agent } from "./agents.ts";
-import { annotate, claudeAnnotator, DEFAULT_MODEL } from "./annotate.ts";
+import { annotate, claudeAnnotator, DEFAULT_MODEL, stopOnFatal } from "./annotate.ts";
+import { isPreset, PRESETS, presetAnnotator, saveToken, tokenFor } from "./openai.ts";
 import { checkMap } from "./check.ts";
 import { builtAgo, CONFIG_FILE, configOf, detect, loadConfig, saveConfig, type Config } from "./detect.ts";
 import { onboard, type LlmOption } from "./onboard.ts";
@@ -51,9 +52,11 @@ Options:
                      relative: paths inside the folder, a self-contained OKF bundle for git and OKF tools
   --llm              let a model write «when to read» for notes and «why follow» for links, and drop
                      similarity links that only share words (one request per page)
-  --llm-with <how>   api: the Claude API (needs ANTHROPIC_API_KEY)
-                     claude, codex: the Claude Code or Codex CLI on this machine, signed in as you
-                     default: api when ANTHROPIC_API_KEY is set, else claude, else codex
+  --llm-with <how>   claude, codex: the Claude Code or Codex CLI on this machine, signed in as you
+                     api: the Claude API (ANTHROPIC_API_KEY)
+                     deepseek, kimi, openrouter: their APIs (DEEPSEEK_API_KEY, MOONSHOT_API_KEY,
+                     OPENROUTER_API_KEY, or the token entered on the first run)
+                     default: the one set on the first run; with --llm alone, the first one available
   --model <id>       model for --llm (default: ${DEFAULT_MODEL} for the API, the agent's own default otherwise)
   --cache <file>     LLM results by content hash; unchanged pages cost nothing (default: .agent-sitemap-cache.json)
   -y, --yes          first run: take what was found, ask nothing
@@ -109,7 +112,7 @@ interface Settings {
   name?: string;
   llmsTxt?: string;
   /** The model chosen in the settings; --llm on the command line wins. */
-  llm?: "claude" | "codex" | "api";
+  llm?: How;
   /** No address: links inside the map are relative, pages are named by their path. */
   siteless?: boolean;
 }
@@ -219,38 +222,42 @@ async function build(settings: Settings): Promise<void> {
 
   let llmSummary = "";
   let hintsBy: string | undefined;
-  // --llm asks for it now; otherwise the model chosen on the first run, if it is still here.
-  let how: "api" | Agent | null = null;
-  if (values.llm) how = await chooseLlm(values["llm-with"]);
-  else if (settings.llm) {
-    const ready = settings.llm === "api" ? Boolean(process.env.ANTHROPIC_API_KEY) : (await installedAgents()).includes(settings.llm);
-    if (ready) how = settings.llm;
-    else console.log(`\nHints from ${settings.llm} are set in ${CONFIG_FILE}, but ${settings.llm === "api" ? "ANTHROPIC_API_KEY is not set" : `${settings.llm} is not installed`}: building without them.`);
-  }
-  // An agent that is not signed in would fail on every page: say it once, before the first request.
-  if (how && how !== "api") {
-    const status = await signIn(how);
-    if (!status.signedIn) {
-      const message = `${how === "claude" ? "Claude Code" : "Codex"} is installed but not signed in: run \`${status.hint}\`, then build again.`;
-      if (values.llm) fail(`\n${message}`);
-      console.log(`\n${message} Building without hints for now.`);
+  // --llm asks for it now; otherwise the model chosen on the first run, if it can be reached here.
+  let how: How | null = values.llm ? await chooseLlm(values["llm-with"]) : (settings.llm ?? null);
+  if (how) {
+    const problem = await unreachable(how);
+    if (problem) {
+      if (values.llm) fail(`\n${problem}`);
+      console.log(`\n${problem} Building without hints for now.`);
       how = null;
     }
   }
   if (how) {
-    hintsBy = how === "api" ? (values.model ?? DEFAULT_MODEL) : values.model ? `${how}/${values.model}` : how;
-    console.log(`\nAnnotating ${[...graph.nodes.values()].filter((n) => n.type === "page").length} pages with ${how === "api" ? `the Claude API (${hintsBy})` : `the ${how} CLI`}`);
-    const report = await annotate(graph, how === "api" ? claudeAnnotator(values.model ?? DEFAULT_MODEL) : agentAnnotator(how, values.model), {
+    const preset = isPreset(how) ? PRESETS[how] : null;
+    const model = values.model ?? (how === "api" ? DEFAULT_MODEL : preset?.model);
+    hintsBy = how === "api" ? model : model ? `${how}/${model}` : how;
+    const label = how === "api" ? `the Claude API (${model})` : preset ? `${preset.label} (${model})` : `the ${how} CLI`;
+    const annotator =
+      how === "api"
+        ? stopOnFatal(claudeAnnotator(model))
+        : preset
+          ? stopOnFatal(presetAnnotator(preset, (await tokenFor(preset))!, model))
+          : agentAnnotator(how as Agent, values.model);
+    const total = [...graph.nodes.values()].filter((n) => n.type === "page").length;
+    console.log(`\nAnnotating ${total} pages with ${label}`);
+    const bar = progressBar(total);
+    const report = await annotate(graph, annotator, {
       cachePath: resolve(values.cache!),
-      model: hintsBy,
+      model: hintsBy!,
       // Agent CLIs are whole processes with their own limits: two at a time is plenty.
-      concurrency: how === "api" ? 4 : 2,
-      log: console.log,
+      concurrency: how === "claude" || how === "codex" ? 2 : 4,
+      log: bar.log,
+      progress: bar.update,
     });
+    bar.finish();
     llmSummary =
       `\n  llm: ${report.pages - report.cached - report.failed.length} pages annotated, ${report.cached} from cache, ` +
-      `${report.failed.length} failed${report.failed.length ? ` (${report.failed.join(", ")})` : ""}; ` +
-      `${report.dropped} weak links dropped; tokens in ${report.usage.input}, out ${report.usage.output}`;
+      `${report.failed.length} failed; ${report.dropped} weak links dropped; tokens in ${report.usage.input}, out ${report.usage.output}`;
   }
   const lang = values.lang === "en" || values.lang === "ru" ? values.lang : isCyrillic(pages.map((p) => p.fullText).join(" ")) ? "ru" : "en";
   const files = render(graph, {
@@ -317,7 +324,10 @@ function display(path: string): string {
   return near.startsWith("..") ? path : `./${near}`;
 }
 
-/** Models this machine can reach, for the first-run question: installed agents, signed in or not, and the API. */
+type How = Exclude<Config["llm"], "none" | undefined>;
+const HOWS: How[] = ["api", "claude", "codex", "deepseek", "kimi", "openrouter"];
+
+/** Models for the first-run question: agents found here (signed in or not), the Claude API with a key, the presets. */
 async function modelsHere(): Promise<LlmOption[]> {
   const options: LlmOption[] = [];
   for (const agent of await installedAgents()) {
@@ -329,20 +339,89 @@ async function modelsHere(): Promise<LlmOption[]> {
     });
   }
   if (process.env.ANTHROPIC_API_KEY) options.push({ value: "api", label: "Claude API with ANTHROPIC_API_KEY, paid per page" });
+  for (const preset of Object.values(PRESETS)) {
+    const token = await tokenFor(preset);
+    options.push({
+      value: preset.id,
+      label: `${preset.label}, ${preset.model}`,
+      ...(token ? {} : { token: { env: preset.keyEnv, url: preset.keyUrl, save: (value: string) => saveToken(preset, value) } }),
+    });
+  }
   return options;
 }
 
-/** How to reach a model for --llm: as asked, or the API with a key, else an agent CLI found on PATH. */
-async function chooseLlm(asked: string | undefined): Promise<"api" | Agent> {
-  if (asked && asked !== "api" && asked !== "claude" && asked !== "codex") fail(`--llm-with must be api, claude or codex, got «${asked}»`);
-  const agents = await installedAgents();
-  if (asked === "claude" || asked === "codex") {
-    if (!agents.includes(asked)) fail(`--llm-with ${asked}: the ${asked} command is not on PATH`);
-    return asked;
+/** Why the chosen model cannot be used on this machine right now, or null when it can. */
+async function unreachable(how: How): Promise<string | null> {
+  if (how === "api") return process.env.ANTHROPIC_API_KEY ? null : "Hints from the Claude API need ANTHROPIC_API_KEY.";
+  if (isPreset(how)) {
+    const preset = PRESETS[how];
+    return (await tokenFor(preset))
+      ? null
+      : `${preset.label} needs a token: set ${preset.keyEnv} or run agent-sitemap init to enter it (get one at ${preset.keyUrl}).`;
   }
-  if (asked === "api" || process.env.ANTHROPIC_API_KEY) return "api";
+  const name = how === "claude" ? "Claude Code" : "Codex";
+  if (!(await installedAgents()).includes(how)) return `${name} is set in ${CONFIG_FILE}, but the ${how} command is not installed here.`;
+  const status = await signIn(how);
+  return status.signedIn ? null : `${name} is installed but not signed in: run \`${status.hint}\`, then build again.`;
+}
+
+/** How to reach a model for --llm: as asked, else the API with a key, an agent found here, a preset with a token. */
+async function chooseLlm(asked: string | undefined): Promise<How> {
+  if (asked) {
+    if (!HOWS.includes(asked as How)) fail(`--llm-with must be one of ${HOWS.join(", ")}, got «${asked}»`);
+    return asked as How;
+  }
+  if (process.env.ANTHROPIC_API_KEY) return "api";
+  const agents = await installedAgents();
   if (agents.length) return agents[0];
-  fail("--llm needs a model: set ANTHROPIC_API_KEY, or install and sign in to Claude Code (claude) or Codex (codex).");
+  for (const preset of Object.values(PRESETS)) if (await tokenFor(preset)) return preset.id;
+  fail("--llm needs a model: install Claude Code or Codex, or set ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY or OPENROUTER_API_KEY.");
+}
+
+/**
+ * Progress of the hints: in a terminal one line that redraws (spinner, bar, count, time, the page
+ * just done) and failures grouped at the end; elsewhere one line per page, as logs want.
+ */
+function progressBar(total: number): {
+  log?: (line: string) => void;
+  update: (step: { done: number; page: string; status: string; error?: string }) => void;
+  finish: () => void;
+} {
+  if (!process.stdout.isTTY) return { log: console.log, update: () => {}, finish: () => {} };
+  const started = Date.now();
+  const failures = new Map<string, string[]>();
+  const frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+  let done = 0;
+  let last = "starting";
+  let frame = 0;
+  const draw = () => {
+    const width = 24;
+    const filled = Math.round((done / total) * width);
+    const seconds = Math.round((Date.now() - started) / 1000);
+    const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    const page = last.length > 40 ? `${last.slice(0, 39)}…` : last;
+    const mark = last === "done" ? (failures.size ? "!" : "✓") : frames[frame++ % frames.length];
+    process.stdout.write(`\r  ${mark} ▕${"█".repeat(filled)}${"░".repeat(width - filled)}▏ ${done}/${total} · ${time} · ${page}\x1b[K`);
+  };
+  draw();
+  const timer = setInterval(draw, 100);
+  return {
+    update(step) {
+      done = step.done;
+      last = step.status === "failed" ? `${step.page} (failed)` : step.page;
+      if (step.status === "failed") failures.set(step.error ?? "unknown error", [...(failures.get(step.error ?? "unknown error") ?? []), step.page]);
+      draw();
+    },
+    finish() {
+      clearInterval(timer);
+      last = "done";
+      draw();
+      process.stdout.write("\n");
+      for (const [error, pages] of failures) {
+        console.log(`  ${pages.length} ${pages.length === 1 ? "page" : "pages"} without hints: ${error}${pages.length <= 3 ? ` (${pages.join(", ")})` : ""}`);
+      }
+    },
+  };
 }
 
 /** Notes missing from a new build are deleted from the output folder, so it must be empty or an earlier map. */

@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { SCHEMA, SYSTEM, type Annotator, type PageAnnotation } from "./annotate.ts";
+import { SCHEMA, stopOnFatal, SYSTEM, type Annotator, type PageAnnotation } from "./annotate.ts";
 
 export type Agent = "claude" | "codex";
 
@@ -57,21 +57,8 @@ export async function login(agent: Agent): Promise<boolean> {
   return (await signIn(agent)).signedIn;
 }
 
-/** Errors that will not go away on the next page: stop asking after the first one. */
-const FATAL = /not logged in|please run \/login|not signed in|invalid api key|authentication|unauthorized|usage limit|rate limit reached for/i;
-
 export function agentAnnotator(agent: Agent, model?: string): Annotator {
-  const annotate = agent === "claude" ? claudeCode(model) : codex(model);
-  let stopped: Error | null = null;
-  return async (input) => {
-    if (stopped) throw stopped;
-    try {
-      return await annotate(input);
-    } catch (error) {
-      if (FATAL.test((error as Error).message)) stopped = error as Error;
-      throw error;
-    }
-  };
+  return stopOnFatal(agent === "claude" ? claudeCode(model) : codex(model));
 }
 
 function claudeCode(model?: string): Annotator {

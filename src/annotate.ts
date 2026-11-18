@@ -159,9 +159,19 @@ export interface AnnotateReport {
 export async function annotate(
   graph: Graph,
   annotator: Annotator,
-  options: { cachePath: string; model: string; concurrency?: number; log?: (line: string) => void },
+  options: {
+    cachePath: string;
+    model: string;
+    concurrency?: number;
+    log?: (line: string) => void;
+    /** After every page, cached or not: for a progress bar. */
+    progress?: (step: { done: number; total: number; page: string; status: "cached" | "annotated" | "failed"; error?: string }) => void;
+  },
 ): Promise<AnnotateReport> {
   const log = options.log ?? (() => {});
+  let done = 0;
+  const step = (page: string, status: "cached" | "annotated" | "failed", error?: string) =>
+    options.progress?.({ done: ++done, total: inputs.length, page, status, error });
   const cache: CacheFile = await readFile(options.cachePath, "utf8").then(JSON.parse, () => ({}));
   const inputs = pageInputs(graph);
   const report: AnnotateReport = { pages: inputs.length, cached: 0, failed: [], dropped: 0, usage: { input: 0, output: 0 } };
@@ -177,6 +187,7 @@ export async function annotate(
       if (cache[hash]) {
         report.cached++;
         results.push(cache[hash]);
+        step(input.page.id, "cached");
         continue;
       }
       try {
@@ -188,9 +199,11 @@ export async function annotate(
           report.usage.output += usage.output;
         }
         log(`  annotated ${input.page.id}`);
+        step(input.page.id, "annotated");
       } catch (error) {
         report.failed.push(input.page.id);
         log(`  failed    ${input.page.id}: ${(error as Error).message}`);
+        step(input.page.id, "failed", (error as Error).message);
       }
     }
   }
@@ -220,4 +233,21 @@ export async function annotate(
     });
   }
   return report;
+}
+
+/** Errors that will not go away on the next page: signed out, a bad key, no money, no such model. */
+const FATAL = /not logged in|please run \/login|not signed in|invalid api key|no access|insufficient balance|model not found|authentication|unauthorized|usage limit|rate limit reached for/i;
+
+/** After the first such error, the remaining pages fail at once instead of asking again. */
+export function stopOnFatal(annotator: Annotator): Annotator {
+  let stopped: Error | null = null;
+  return async (input) => {
+    if (stopped) throw stopped;
+    try {
+      return await annotator(input);
+    } catch (error) {
+      if (FATAL.test((error as Error).message)) stopped = error as Error;
+      throw error;
+    }
+  };
 }

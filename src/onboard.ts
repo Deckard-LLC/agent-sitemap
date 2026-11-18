@@ -2,7 +2,7 @@
 // repository already, so Enter goes through: the site's address, the pages, and who writes hints.
 // In a terminal the questions are interactive (arrows to choose, Enter to confirm); with answers
 // piped in (scripts, tests) they are read line by line.
-import { confirm, input, select } from "@inquirer/prompts";
+import { confirm, input, password, select } from "@inquirer/prompts";
 import { createInterface } from "node:readline";
 import { configOf, CONFIG_FILE, type Config, type Detection, type LlmChoice } from "./detect.ts";
 
@@ -11,6 +11,8 @@ export interface LlmOption {
   label: string;
   /** Not signed in yet: the command that signs in, and a way to run it right away. */
   signIn?: { hint: string; run: () => Promise<boolean> };
+  /** No token yet: where it is read from, where to get one, and how to keep the one entered. */
+  token?: { env: string; url: string; save: (token: string) => Promise<string> };
 }
 
 interface Choice<T> {
@@ -24,6 +26,7 @@ interface Choice<T> {
 interface Asker {
   text(message: string, suggested: string, validate: (value: string) => string | true): Promise<string>;
   yes(message: string): Promise<boolean>;
+  secret(message: string): Promise<string>;
   choose<T>(message: string, choices: Choice<T>[]): Promise<T>;
   close(): void;
 }
@@ -68,10 +71,12 @@ export async function onboard(found: Detection, models: LlmOption[]): Promise<Co
       { value: "none", label: "No model", description: "hints are the first sentence of each note; free, the same map every time" },
       ...models.map((m) => ({
         value: m.value,
-        label: m.signIn ? `${m.label} · sign in first` : m.label,
+        label: m.signIn ? `${m.label} · sign in first` : m.token ? `${m.label} · token needed` : m.label,
         description: m.signIn
           ? `not signed in yet: choosing it runs ${m.signIn.hint} here, then goes on`
-          : "one request per page, cached: rebuilds pay only for changed pages",
+          : m.token
+            ? `asks for the token once (or set ${m.token.env}); get one at ${m.token.url}`
+            : "one request per page, cached: rebuilds pay only for changed pages",
       })),
     ];
     let llm: LlmChoice = "none";
@@ -79,6 +84,16 @@ export async function onboard(found: Detection, models: LlmOption[]): Promise<Co
     else llm = await ask.choose("Who writes the hints?", choices);
 
     const chosen = models.find((m) => m.value === llm);
+    if (chosen?.token) {
+      console.log(`\n     Get a token at ${chosen.token.url}`);
+      const token = (await ask.secret("Token")).trim();
+      if (token) {
+        const where = await chosen.token.save(token);
+        console.log(`     Saved to ${where}, outside the repository. ${chosen.token.env} in the environment takes precedence.`);
+      } else {
+        console.log(`     No token. The choice is saved; set ${chosen.token.env} or run agent-sitemap init to enter it.`);
+      }
+    }
     if (chosen?.signIn) {
       console.log(`\n     Signing in: ${chosen.signIn.hint}\n`);
       const ok = await chosen.signIn.run();
@@ -120,6 +135,7 @@ function interactive(): Asker {
   return {
     text: (message, suggested, validate) => input({ message, default: suggested || undefined, validate, theme }),
     yes: (message) => confirm({ message, default: true, theme }),
+    secret: (message) => password({ message, mask: "•", theme }),
     choose: <T,>(message: string, choices: Choice<T>[]) =>
       select<T>({
         message,
@@ -163,6 +179,7 @@ function lines(): Asker {
       const answer = (await next(`     ${message} [Y/n]: `)).trim().toLowerCase();
       return !answer || ["y", "yes", "д", "да"].includes(answer);
     },
+    secret: (message) => next(`     ${message}: `),
     async choose<T>(message: string, choices: Choice<T>[]) {
       console.log(`     ${message}`);
       choices.forEach((c, i) => console.log(`     ${i + 1}) ${c.label}${c.unavailable ? ` (${c.unavailable})` : c.description ? `: ${c.description}` : ""}`));

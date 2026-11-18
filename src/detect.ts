@@ -8,7 +8,7 @@ import { parse as parseYaml } from "yaml";
 
 export const CONFIG_FILE = "agent-sitemap.config.json";
 
-export type LlmChoice = "none" | "claude" | "codex" | "api";
+export type LlmChoice = "none" | "claude" | "codex" | "api" | "deepseek" | "kimi" | "openrouter";
 
 export interface Config {
   /** The site's public address: links in the map point under it. Empty: links inside the map are relative. */
