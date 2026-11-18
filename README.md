@@ -39,47 +39,44 @@ pnpm agent-sitemap
 
 The first run sets everything up by asking three questions; later runs only rebuild the map.
 
-<table><tr><td>
-
-### Onboarding: the first run, step by step
-
-**Before you start.** Run it from the root of the site's repository, with Node 20.17 or newer. If
-some pages are built by a framework (Astro, Next export, Vite prerender…), build the site first:
-the map reads them from the build folder.
-
-**Step 1 of 3 · Site address.** The address found in `robots.txt`, `sitemap.xml`, `CNAME` or
-`package.json` is filled in.
-- Enter accepts it; type another address to change it.
-- No site online yet? Leave it empty: links inside the map become relative.
-
-**Step 2 of 3 · Pages.** You see what goes into the map: the build folder, groups of Markdown
-pages with the URLs they get (`blog/*/post.md → /blog/*/`), the folder the map is written to and
-the `llms.txt` that will point to it.
-- Enter (or `y`) builds the map from them.
-- `n` stops without saving: edit `agent-sitemap.config.json` by hand and run again.
-
-**Step 3 of 3 · Hints from a model.** Choose with ↑ ↓ and Enter who writes the «read if…» and
-«why follow» hints next to the links:
-
-- **No model**: free. Hints are the first sentence of each note; the same map on every run.
-- **Claude Code, Codex**: your subscription. Shown when installed; if not signed in, choosing one
-  opens its sign-in (`claude auth login`, `codex login`) right there.
-- **DeepSeek, Kimi, OpenRouter**: paid per request. The token is asked once and kept in
-  `~/.config/agent-sitemap/`, never in the repository.
-- **Claude API**: paid per request. Shown when `ANTHROPIC_API_KEY` is set.
-
-**Then** the map is built: a progress bar runs while the model writes the hints, and the build
-ends with what to do next.
-- Commit the map folder (e.g. `public/ai/`), `llms.txt` and `agent-sitemap.config.json`, and
-  deploy as usual. The map opens at `https://your-site/ai/index.md`.
-- `.agent-sitemap-cache.json` holds the model's answers: commit it to save requests on other
-  machines, or add it to `.gitignore`.
-
-**Next runs** ask nothing: `pnpm agent-sitemap` rebuilds the map from the saved settings and
-rewrites only what changed. `pnpm agent-sitemap init` asks the questions again. In CI, or with
-`--yes`, the answers found are taken without asking.
-
-</td></tr></table>
+> [!TIP]
+> **Onboarding: the first run, step by step**
+>
+> **Before you start.** Run it from the root of the site's repository, with Node 20.17 or newer. If
+> some pages are built by a framework (Astro, Next export, Vite prerender…), build the site first:
+> the map reads them from the build folder.
+>
+> **Step 1 of 3 · Site address.** The address found in `robots.txt`, `sitemap.xml`, `CNAME` or
+> `package.json` is filled in.
+> - Enter accepts it; type another address to change it.
+> - No site online yet? Leave it empty: links inside the map become relative.
+>
+> **Step 2 of 3 · Pages.** You see what goes into the map: the build folder, groups of Markdown
+> pages with the URLs they get (`blog/*/post.md → /blog/*/`), the folder the map is written to and
+> the `llms.txt` that will point to it.
+> - Enter (or `y`) builds the map from them.
+> - `n` stops without saving: edit `agent-sitemap.config.json` by hand and run again.
+>
+> **Step 3 of 3 · Hints from a model.** Choose with ↑ ↓ and Enter who writes the «read if…» and
+> «why follow» hints next to the links:
+>
+> - **No model**: free. Hints are the first sentence of each note; the same map on every run.
+> - **Claude Code, Codex**: your subscription. Shown when installed; if not signed in, choosing one
+>   opens its sign-in (`claude auth login`, `codex login`) right there.
+> - **DeepSeek, Kimi, OpenRouter**: paid per request. The token is asked once and kept in
+>   `~/.config/agent-sitemap/`, never in the repository.
+> - **Claude API**: paid per request. Shown when `ANTHROPIC_API_KEY` is set.
+>
+> **Then** the map is built: a progress bar runs while the model writes the hints, and the build
+> ends with what to do next.
+> - Commit the map folder (e.g. `public/ai/`), `llms.txt` and `agent-sitemap.config.json`, and
+>   deploy as usual. The map opens at `https://your-site/ai/index.md`.
+> - `.agent-sitemap-cache.json` holds the model's answers: commit it to save requests on other
+>   machines, or add it to `.gitignore`.
+>
+> **Next runs** ask nothing: `pnpm agent-sitemap` rebuilds the map from the saved settings and
+> rewrites only what changed. `pnpm agent-sitemap init` asks the questions again. In CI, or with
+> `--yes`, the answers found are taken without asking.
 
 A first run in the repository of [deckardlab.tech](https://deckardlab.tech), abridged (while
 the model writes the hints, a progress bar runs under «Annotating»):
