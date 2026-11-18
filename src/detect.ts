@@ -8,8 +8,10 @@ import { parse as parseYaml } from "yaml";
 
 export const CONFIG_FILE = "agent-sitemap.config.json";
 
+export type LlmChoice = "none" | "claude" | "codex" | "api";
+
 export interface Config {
-  /** The site's public address: links in the map point under it. */
+  /** The site's public address: links in the map point under it. Empty: links inside the map are relative. */
   site: string;
   /** Where the map is written, inside the folder the site serves as is. */
   out: string;
@@ -20,14 +22,33 @@ export interface Config {
   name?: string;
   /** llms.txt that gets one line pointing to the map. */
   llmsTxt?: string;
+  /** Who writes the hints: a model reached through the API or an agent CLI, or none. */
+  llm?: LlmChoice;
 }
 
 export interface Detection {
-  config: Config | null;
+  /** The site's address and the file it was read from. */
+  site: { url: string; from: string } | null;
+  /** Page sources, each with what it stands for. */
+  sources: { source: string; note: string }[];
+  out: string;
+  /** The folder served as is, if there is one. */
+  staticDir: string | null;
+  llmsTxt?: string;
   /** What was found and why, for the build log. */
   notes: string[];
-  /** What is missing for a build, in words for the user. */
+  /** What a build cannot go without, in words for the user. */
   missing: string[];
+}
+
+/** A detection as settings, once nothing is missing. */
+export function configOf(found: Detection, site = found.site?.url ?? ""): Config {
+  return {
+    site,
+    out: found.out,
+    from: found.sources.map((s) => s.source),
+    ...(found.llmsTxt ? { llmsTxt: found.llmsTxt } : {}),
+  };
 }
 
 const BUILD_DIRS = ["dist", "build", "out", "_site"];
@@ -46,7 +67,7 @@ export async function loadConfig(cwd: string): Promise<Config | null> {
   const text = await readFile(join(cwd, CONFIG_FILE), "utf8").catch(() => null);
   if (text === null) return null;
   const config = JSON.parse(text) as Config;
-  if (!config.site || !config.out || !config.from?.length) throw new Error(`${CONFIG_FILE} needs "site", "out" and "from"`);
+  if (typeof config.site !== "string" || !config.out || !config.from?.length) throw new Error(`${CONFIG_FILE} needs "site", "out" and "from"`);
   return config;
 }
 
@@ -69,24 +90,20 @@ export async function detect(cwd: string): Promise<Detection> {
   if (site) notes.push(`site address ${site.url} (from ${site.from})`);
   else missing.push(`the site's address: put it in ${CONFIG_FILE} as "site", or add a sitemap.xml, robots.txt with Sitemap: or CNAME to the static folder`);
 
-  const from: string[] = [];
-  if (buildDir) {
-    from.push(buildDir);
-    notes.push(`built pages in ${buildDir}`);
-  }
+  const sources: Detection["sources"] = [];
+  if (buildDir) sources.push({ source: buildDir, note: `built pages in ${buildDir}` });
   for (const group of markdownGroups(await pagesWithTitles(cwd, files))) {
-    from.push(`${group.pattern}=${group.url}`);
-    notes.push(`${group.count} Markdown pages ${group.pattern} → ${group.url}`);
+    sources.push({ source: `${group.pattern}=${group.url}`, note: `${group.count} Markdown pages ${group.pattern} → ${group.url}` });
   }
-  if (!from.length) missing.push("pages: no built site (dist, build, out) and no Markdown files with a title in front matter");
+  notes.push(...sources.map((s) => s.note));
+  if (!sources.length) missing.push("pages: no built site (dist, build, out) and no Markdown files with a title in front matter");
 
   const out = staticDir ? `${staticDir}/ai` : "ai";
   notes.push(staticDir ? `map goes to ${out}, served with the site from ${staticDir}` : `map goes to ./${out}: no public or static folder found`);
   const llms = staticDir && files.has(`${staticDir}/llms.txt`) ? `${staticDir}/llms.txt` : undefined;
   if (llms) notes.push(`llms.txt at ${llms} will point to the map`);
 
-  if (missing.length || !site) return { config: null, notes, missing };
-  return { config: { site: site.url, out, from, ...(llms ? { llmsTxt: llms } : {}) }, notes, missing };
+  return { site, sources, out, staticDir, ...(llms ? { llmsTxt: llms } : {}), notes, missing };
 }
 
 interface WebApp {
@@ -118,8 +135,10 @@ async function webApps(cwd: string): Promise<WebApp[]> {
         break;
       }
     }
-    // A public folder alone is not enough at the root: plenty of repositories have one for other reasons.
-    if (build || (staticDir && dir !== ".")) apps.push({ dir, static: staticDir, build });
+    // At the root a public folder counts only when it holds files of a site: plenty of repositories
+    // have one for other reasons.
+    const siteFolder = staticDir && (dir !== "." || (await holdsSiteFiles(join(cwd, staticDir))));
+    if (build || siteFolder) apps.push({ dir, static: siteFolder ? staticDir : null, build });
   }
   // The app with both a build and a static folder first: that is the site.
   return apps.sort((a, b) => Number(!!b.build && !!b.static) - Number(!!a.build && !!a.static));
@@ -232,6 +251,13 @@ export async function builtAgo(dir: string): Promise<string | null> {
   if (hours < 1) return "less than an hour ago";
   if (hours < 48) return `${Math.round(hours)} hours ago`;
   return `${Math.round(hours / 24)} days ago`;
+}
+
+const SITE_FILES = ["robots.txt", "sitemap.xml", "llms.txt", "CNAME", "favicon.ico", "favicon.svg", "index.html", "manifest.json", "site.webmanifest"];
+
+async function holdsSiteFiles(dir: string): Promise<boolean> {
+  const names = await readdir(dir).catch(() => [] as string[]);
+  return SITE_FILES.some((name) => names.includes(name));
 }
 
 async function exists(path: string): Promise<boolean> {

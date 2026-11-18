@@ -203,7 +203,8 @@ export async function annotate(
     for (const note of result.nodes ?? []) {
       const node = graph.nodes.get(note.id);
       if (!node) continue;
-      if (note.summary?.trim()) node.summary = note.summary.trim();
+      // An author's description says what the author wants said: the model only fills in the rest.
+      if (note.summary?.trim() && !node.authored) node.summary = note.summary.trim();
       if (note.when?.trim()) node.when = note.when.trim().replace(/[.;]$/, "");
     }
     const byKey = new Map((result.edges ?? []).map((e) => [e.key, e]));

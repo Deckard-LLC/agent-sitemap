@@ -22,6 +22,8 @@ export interface Page {
   lists: Listing[];
   /** Whole cleaned page, to estimate the cost of reading it in full. */
   fullText: string;
+  /** The summary was written by the page's author (front-matter description), not taken from the text. */
+  authoredSummary?: boolean;
 }
 
 export interface Listing {
@@ -119,6 +121,7 @@ export function parsePage(url: string, raw: string, meta: PageMeta = {}): Page {
     sections,
     lists,
     fullText: [title, intro, ...sections.map((s) => `${s.title}\n${s.body}`)].join("\n\n"),
+    ...(meta.summary?.trim() ? { authoredSummary: true } : {}),
   };
 }
 

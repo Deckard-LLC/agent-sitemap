@@ -21,6 +21,8 @@ export interface GraphNode {
   body?: string;
   /** From the LLM pass: when an agent should open this note («нужно оценить бюджет…»). */
   when?: string;
+  /** The summary is the author's own: the LLM pass leaves it as is. */
+  authored?: boolean;
 }
 
 export interface Edge {
@@ -86,6 +88,7 @@ export function buildGraph(input: Page[], options: GraphOptions = {}): Graph {
       type: "page",
       title: page.title,
       summary: page.summary,
+      ...(page.authoredSummary ? { authored: true } : {}),
       url: page.url,
       tokens: estimateTokens(full),
       page: id,

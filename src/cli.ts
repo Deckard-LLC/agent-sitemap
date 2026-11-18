@@ -4,12 +4,13 @@
 // agent-sitemap <site-url> --from <files> [options]  build it from the given files
 // agent-sitemap init | check [dir]                   find the settings again | check a built map
 import { appendFile, readdir, readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { agentAnnotator, installedAgents, type Agent } from "./agents.ts";
 import { annotate, claudeAnnotator, DEFAULT_MODEL } from "./annotate.ts";
 import { checkMap } from "./check.ts";
-import { builtAgo, CONFIG_FILE, detect, loadConfig, saveConfig, type Config } from "./detect.ts";
+import { builtAgo, CONFIG_FILE, configOf, detect, loadConfig, saveConfig, type Config } from "./detect.ts";
+import { onboard } from "./onboard.ts";
 import { discover, fetchAll } from "./fetch.ts";
 import { parseSource, readLocal } from "./local.ts";
 import { buildGraph } from "./graph.ts";
@@ -19,6 +20,8 @@ import { isCyrillic } from "./text.ts";
 import { writeMap } from "./write.ts";
 
 const DEFAULT_OUT = "ai";
+/** Stands in for the address of a site that has none yet; removed from everything written. */
+const NO_SITE = "https://site.invalid";
 
 const USAGE = `agent-sitemap: a linked Markdown map of your site that AI agents can walk.
 
@@ -29,8 +32,9 @@ Usage:
   agent-sitemap check [dir]          check a built map
 
 With no arguments, the first run finds the site's address, its pages (the built site and Markdown
-with a title) and the folder it serves as is, saves them to ${CONFIG_FILE} and builds the map
-there. Later runs read that file; edit it to change what goes into the map.
+with a title) and the folder it serves as is. In a terminal it asks three questions with those
+answers filled in (address, pages, model for hints); elsewhere, or with --yes, it takes them as
+found. It saves them to ${CONFIG_FILE} and builds the map; later runs read that file.
 
 Options:
   --from <files>     read pages from files instead of the web; repeatable. A folder (built .html/.md,
@@ -52,6 +56,7 @@ Options:
                      default: api when ANTHROPIC_API_KEY is set, else claude, else codex
   --model <id>       model for --llm (default: ${DEFAULT_MODEL} for the API, the agent's own default otherwise)
   --cache <file>     LLM results by content hash; unchanged pages cost nothing (default: .agent-sitemap-cache.json)
+  -y, --yes          first run: take what was found, ask nothing
   -v, --version      print the version
   -h, --help         print this help`;
 
@@ -70,6 +75,7 @@ const { values, positionals } = parseArgs({
     "llm-with": { type: "string" },
     model: { type: "string" },
     cache: { type: "string", default: ".agent-sitemap-cache.json" },
+    yes: { type: "boolean", short: "y" },
     version: { type: "boolean", short: "v" },
     help: { type: "boolean", short: "h" },
   },
@@ -102,6 +108,10 @@ interface Settings {
   exclude: string[];
   name?: string;
   llmsTxt?: string;
+  /** The model chosen in the settings; --llm on the command line wins. */
+  llm?: "claude" | "codex" | "api";
+  /** No address: links inside the map are relative, pages are named by their path. */
+  siteless?: boolean;
 }
 
 function fromArguments(siteArg: string): Settings {
@@ -121,14 +131,22 @@ async function settings(again: boolean): Promise<Settings> {
   if (config) {
     console.log(`Settings from ${CONFIG_FILE}`);
   } else {
-    console.log(`Looking at this repository for the site and its pages`);
     const found = await detect(cwd);
-    for (const note of found.notes) console.log(`  found  ${note}`);
-    if (!found.config) {
-      for (const item of found.missing) console.log(`  missing  ${item}`);
-      fail(`\nCould not set up the map on my own. Pass the site's address (agent-sitemap https://example.com --from <files>) or write ${CONFIG_FILE}.`);
+    const interactive =
+      (Boolean(process.stdin.isTTY && process.stdout.isTTY) && !process.env.CI && !values.yes) || process.env.AGENT_SITEMAP_INTERACTIVE === "1";
+    if (interactive) {
+      config = await onboard(found, { agents: await installedAgents(), apiKey: Boolean(process.env.ANTHROPIC_API_KEY) });
+      if (!config) process.exit(1);
+      console.log("");
+    } else {
+      console.log(`Looking at this repository for the site and its pages`);
+      for (const note of found.notes) console.log(`  found  ${note}`);
+      if (found.missing.length) {
+        for (const item of found.missing) console.log(`  missing  ${item}`);
+        fail(`\nCould not set up the map on my own. Run it in a terminal to answer a few questions, pass the site's address (agent-sitemap https://example.com --from <files>) or write ${CONFIG_FILE}.`);
+      }
+      config = configOf(found);
     }
-    config = found.config;
     await saveConfig(cwd, config);
     console.log(`Saved to ${CONFIG_FILE}: edit it to change what goes into the map.\n`);
     if (command === "init") process.exit(0);
@@ -139,12 +157,14 @@ async function settings(again: boolean): Promise<Settings> {
     if (ago) console.log(`  ${folder} was built ${ago}`);
   }
   return {
-    site: new URL(config.site),
+    site: new URL(config.site || `${NO_SITE}/`),
+    siteless: !config.site,
     from: values.from!.length ? values.from! : config.from,
     out: values.out ?? config.out,
     exclude: [...(config.exclude ?? []), ...values.exclude!],
-    name: values.name ?? config.name,
+    name: values.name ?? config.name ?? (config.site ? undefined : basename(cwd)),
     llmsTxt: config.llmsTxt,
+    llm: config.llm && config.llm !== "none" ? config.llm : undefined,
   };
 }
 
@@ -167,6 +187,9 @@ async function build(settings: Settings): Promise<void> {
   const base = values.base ? (values.base.endsWith("/") ? values.base : `${values.base}/`) : new URL("/ai/", site).href;
   const out = resolve(settings.out);
   if (values.links !== "absolute" && values.links !== "relative") fail(`--links must be «absolute» or «relative», got «${values.links}»`);
+  // Without an address there is nothing to make links absolute with.
+  const links = settings.siteless ? "relative" : (values.links as "absolute" | "relative");
+  const mapUrl = settings.siteless ? new URL(base).pathname : base;
   // Checked before any request: a mistyped --out must not cost a crawl, let alone someone's folder.
   await assertReplaceable(out);
   const excluded = settings.exclude.map((path) => path.replace(/\/+$/, "") || "/");
@@ -196,8 +219,15 @@ async function build(settings: Settings): Promise<void> {
 
   let llmSummary = "";
   let hintsBy: string | undefined;
-  if (values.llm) {
-    const how = await chooseLlm(values["llm-with"]);
+  // --llm asks for it now; otherwise the model chosen on the first run, if it is still here.
+  let how: "api" | Agent | null = null;
+  if (values.llm) how = await chooseLlm(values["llm-with"]);
+  else if (settings.llm) {
+    const ready = settings.llm === "api" ? Boolean(process.env.ANTHROPIC_API_KEY) : (await installedAgents()).includes(settings.llm);
+    if (ready) how = settings.llm;
+    else console.log(`\nHints from ${settings.llm} are set in ${CONFIG_FILE}, but ${settings.llm === "api" ? "ANTHROPIC_API_KEY is not set" : `${settings.llm} is not installed`}: building without them.`);
+  }
+  if (how) {
     hintsBy = how === "api" ? (values.model ?? DEFAULT_MODEL) : values.model ? `${how}/${values.model}` : how;
     console.log(`\nAnnotating ${[...graph.nodes.values()].filter((n) => n.type === "page").length} pages with ${how === "api" ? `the Claude API (${hintsBy})` : `the ${how} CLI`}`);
     const report = await annotate(graph, how === "api" ? claudeAnnotator(values.model ?? DEFAULT_MODEL) : agentAnnotator(how, values.model), {
@@ -220,21 +250,22 @@ async function build(settings: Settings): Promise<void> {
     lang,
     generated: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
     producer: `agent-sitemap/${version}`,
-    links: values.links as "absolute" | "relative",
+    links,
     model: hintsBy,
   });
+  if (settings.siteless) for (const [path, text] of files) files.set(path, text.replaceAll(NO_SITE, ""));
 
   const written = await writeMap(out, files);
 
   // Agents do not look for maps on their own: llms.txt is where they look.
   const line =
-    `- [${lang === "ru" ? "Карта сайта для ИИ-агентов" : "Site map for AI agents"}](${base}index.md): ` +
+    `- [${lang === "ru" ? "Карта сайта для ИИ-агентов" : "Site map for AI agents"}](${mapUrl}index.md): ` +
     (lang === "ru" ? "связанные заметки по страницам и разделам, с размером в токенах" : "linked notes for every page and section, with their size in tokens");
   let llmsAdded = false;
   if (settings.llmsTxt) {
     const path = resolve(settings.llmsTxt);
     const text = await readFile(path, "utf8").catch(() => null);
-    if (text !== null && !text.includes(`${base}index.md`)) {
+    if (text !== null && !text.includes(`${mapUrl}index.md`)) {
       await appendFile(path, `${text.endsWith("\n") ? "" : "\n"}\n${line}\n`);
       llmsAdded = true;
     }
@@ -249,7 +280,7 @@ async function build(settings: Settings): Promise<void> {
       `sections ${[...graph.nodes.values()].filter((n) => n.type === "section").length}\n` +
       `  edges: links ${count("links")}, lists ${count("lists")}, related ${count("related")}, next ${count("next")}\n` +
       `  dropped as repeated template: ${graph.boilerplate.join("; ") || "nothing"}\n` +
-      `  OKF ${OKF_VERSION} bundle, ${values.links} links` +
+      `  OKF ${OKF_VERSION} bundle, ${links} links` +
       llmSummary +
       (llmsAdded ? `\n  added a line pointing to the map to ${display(resolve(settings.llmsTxt!))}` : ""),
   );
@@ -257,7 +288,7 @@ async function build(settings: Settings): Promise<void> {
     const changed = written.written + written.removed + Number(llmsAdded);
     console.log(
       changed
-        ? `\nCommit ${shown}${llmsAdded ? " and llms.txt" : ""} and deploy with the site: the map opens at ${base}index.md`
+        ? `\nCommit ${shown}${llmsAdded ? " and llms.txt" : ""} and deploy with the site: the map opens at ${settings.siteless ? `${mapUrl}index.md on the site` : `${base}index.md`}`
         : `\nNothing changed since the last build.`,
     );
   } else {

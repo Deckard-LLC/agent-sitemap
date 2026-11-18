@@ -36,7 +36,32 @@ pnpm add -D agent-sitemap
 pnpm agent-sitemap
 ```
 
-That is all. The first run looks at the repository and finds:
+In a terminal, the first run asks three questions, each with the answer it found already filled
+in, so Enter goes through:
+
+```text
+1/3  Site address  links in the map point under it
+     found https://studio.example/ in public/robots.txt
+     Address [https://studio.example/]:
+
+2/3  Pages
+     12 Markdown pages blog/*/post.md → /blog/*/
+     the map goes to public/ai, served with the site from public
+     public/llms.txt gets one line pointing to the map
+     Build the map from these? [Y/n]:
+
+3/3  Hints from a model  «read if…» next to every note, «why follow» next to every link
+     1) No model: hints are the first sentence of each note. Free, the same map every time
+     2) Claude Code on this machine, under your subscription
+     Choose [1]:
+```
+
+No address yet? Leave it empty: the links inside the map are then relative. The models offered are
+only those found on the machine: Claude Code, Codex, or the Claude API when `ANTHROPIC_API_KEY`
+is set. The choice is remembered. In CI, or with `--yes`, nothing is asked and the answers found
+are taken as they are.
+
+To find those answers, the first run looks at the repository:
 
 - **the site's address**, from `robots.txt`, `sitemap.xml` or `CNAME` in the static folder, or
   `homepage` in `package.json`;
@@ -86,9 +111,13 @@ those pages change.
   "out": "public/ai",
   "from": ["dist", "content/blog/*.md=/blog/*/"],
   "exclude": ["/privacy"],
-  "llmsTxt": "public/llms.txt"
+  "llmsTxt": "public/llms.txt",
+  "llm": "claude"
 }
 ```
+
+`llm` is `none`, `claude`, `codex` or `api`. When the chosen one is not available on a machine
+(no `claude` installed, no API key), the map is built without hints and the build says so.
 
 `site` only sets the address the links point to. Each entry of `from` is one of:
 
@@ -105,7 +134,7 @@ as is) and skips pages that are not public: `draft: true`, `status: draft` (also
 Built pages with next to no text (search-console verification files) and the map's own copy in
 the build are skipped.
 
-`agent-sitemap init` looks at the repository again and rewrites the file.
+`agent-sitemap init` asks the questions again and rewrites the file.
 
 ### Any site, from the web
 
