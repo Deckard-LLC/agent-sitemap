@@ -54,14 +54,23 @@ export async function readLocal(
 
   for (const source of sources) {
     const matches = await match(source.pattern, cwd);
-    if (!matches.length) throw new Error(`--from ${source.pattern}: no files match`);
+    if (!matches.length) {
+      const folder = !source.pattern.includes("*") && /^(?:.*\/)?(?:dist|build|out|_site)$/.test(source.pattern);
+      throw new Error(folder ? `${source.pattern} not found: build the site first, its pages go into the map` : `--from ${source.pattern}: no files match`);
+    }
     const found: (LocalPage & { date: number })[] = [];
     for (const { file, captures, rest } of matches) {
       const shown = relative(cwd, file).split(sep).join("/");
       const path = source.url ? fill(source.url, captures) : urlFromPath(rest);
       const raw = await readFile(file, "utf8");
       if (/\.html?$/i.test(file)) {
-        found.push({ url: new URL(path, site).href, file: shown, markdown: htmlToMarkdown(raw), date: 0 });
+        const markdown = htmlToMarkdown(raw);
+        // Search-console verification files and redirects: a page with next to no text.
+        if (markdown.replace(/[^\p{L}\p{N}]+/gu, "").length < 80) {
+          skipped.push({ file: shown, reason: "almost no text" });
+          continue;
+        }
+        found.push({ url: new URL(path, site).href, file: shown, markdown, date: 0 });
         continue;
       }
       const { meta, body } = frontMatter(raw);
@@ -133,12 +142,15 @@ async function match(pattern: string, cwd: string): Promise<Match[]> {
   });
 }
 
-async function walk(dir: string): Promise<string[]> {
+async function walk(dir: string, top = true): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
+  // A map built earlier and copied into the build (dist/ai) is not a page of the site.
+  if (!top && entries.some((e) => e.name === "graph.json") && entries.some((e) => e.name === "index.md")) return [];
   const nested = await Promise.all(
     entries.map((entry) => {
       const path = join(dir, entry.name);
-      if (entry.isDirectory()) return SKIP_DIRS.has(entry.name) ? [] : walk(path);
+      // .well-known and other dot folders hold files for machines, not pages.
+      if (entry.isDirectory()) return SKIP_DIRS.has(entry.name) || entry.name.startsWith(".") ? [] : walk(path, false);
       return entry.isFile() ? [path] : [];
     }),
   );

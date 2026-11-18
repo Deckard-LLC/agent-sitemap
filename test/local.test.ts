@@ -76,7 +76,7 @@ test("--from builds the map offline, and a rebuild without changes rewrites noth
   const args = [cli, "https://example.com", "--from", "dist/index.md=/", "--from", "blog/*/post.md=/blog/*/", "--out", "public/ai"];
   const first = await run("node", args, { cwd });
   assert.match(first.stdout, /Map: \d+ notes in \.\/public\/ai \((\d+) written, 0 unchanged, 0 removed\)/);
-  assert.match(first.stdout, /Commit \.\/public\/ai and deploy it with the site/);
+  assert.match(first.stdout, /Commit \.\/public\/ai and deploy with the site: the map opens at https:\/\/example\.com\/ai\/index\.md/);
 
   const note = join(cwd, "public/ai/blog/price.md");
   const text = await readFile(note, "utf8");

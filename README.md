@@ -10,7 +10,6 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="#in-your-repository">In your repository</a> ·
   <a href="#what-an-agent-reads">What an agent reads</a> ·
   <a href="#how-the-links-are-made">How the links are made</a> ·
   <a href="#publish-the-map">Publish the map</a> ·
@@ -30,52 +29,70 @@ needs no SDK, no plugin and no server-side search.
 
 ## Quick start
 
-```bash
-npx agent-sitemap https://example.com
-```
-
-This reads the site through its `sitemap.xml`, writes the map to `./ai` and prints the next
-steps. You need Node 20 or newer; no API key unless you want [hints from Claude](#hints-from-claude).
-
-```text
-Map: 115 notes in ./ai
-  pages 15, sections 99
-  edges: links 24, lists 13, related 219, next 85
-  dropped as repeated template: разберём ваш процесс за 1–2 дня; ещё в блоге; с чего начать
-  OKF 0.2 bundle, absolute links
-
-Next steps
-  1. Upload ./ai so that https://deckardlab.tech/ai/index.md opens. Rebuild it when the site changes.
-  2. Tell agents where it is: add this line to https://deckardlab.tech/llms.txt
-  3. Check the map any time: npx agent-sitemap check ./ai
-```
-
-<sub>Output of a real build of <a href="https://deckardlab.tech">deckardlab.tech</a>, a Russian-language site.</sub>
-
-## In your repository
-
-The map can also be built from the site's own files, with no requests to the web. Install it in
-the site's repository, run it, and commit the result with the site:
+In your site's repository:
 
 ```bash
 pnpm add -D agent-sitemap
+pnpm agent-sitemap
 ```
+
+That is all. The first run looks at the repository and finds:
+
+- **the site's address**, from `robots.txt`, `sitemap.xml` or `CNAME` in the static folder, or
+  `homepage` in `package.json`;
+- **the pages**: the built site (`dist`, `build`, `out` or `_site`) and Markdown files with a
+  `title` in their front matter (`blog/*/post.md` → `/blog/*/`, `src/content/blog/*.md` → `/blog/*/`);
+- **the folder the site serves as is** (`public` or `static`), where the map goes as `ai/`;
+- **`llms.txt`** in that folder, which gets one line pointing to the map.
+
+It saves what it found to `agent-sitemap.config.json`, builds the map from the files, without
+requests to the web, and tells you what to commit:
+
+```text
+Looking at this repository for the site and its pages
+  found  site address https://deckardlab.tech/ (from apps/web/public/robots.txt)
+  found  built pages in apps/web/dist
+  found  13 Markdown pages blog/*/post.md → /blog/*/
+  found  map goes to apps/web/public/ai, served with the site from apps/web/public
+  found  llms.txt at apps/web/public/llms.txt will point to the map
+Saved to agent-sitemap.config.json: edit it to change what goes into the map.
+
+  apps/web/dist was built 20 hours ago
+Reading apps/web/dist, blog/*/post.md
+  skipped   apps/web/dist/yandex_bdd1b278ce167472.html (almost no text)
+  skipped   apps/web/dist/index.html (same URL as apps/web/dist/index.md)
+
+Map: 166 notes in ./apps/web/public/ai (167 written, 0 unchanged, 0 removed)
+  pages 21, sections 144
+  added a line pointing to the map to ./apps/web/public/llms.txt
+
+Commit ./apps/web/public/ai and llms.txt and deploy with the site: the map opens at https://deckardlab.tech/ai/index.md
+```
+
+<sub>A real first run in the repository of <a href="https://deckardlab.tech">deckardlab.tech</a>, abridged.</sub>
+
+Later runs read `agent-sitemap.config.json`. A rebuild rewrites only the notes whose content
+changed and deletes the notes of pages that are gone, so the diff shows exactly what changed. You
+need Node 20 or newer; no API key unless you want [hints from a model](#hints-from-claude).
+
+Pages built by a framework come from its build folder, so build the site before the map when
+those pages change.
+
+### The settings file
 
 ```json
 {
-  "scripts": {
-    "sitemap": "agent-sitemap https://example.com --from dist --from \"content/blog/*.md=/blog/*/\" --out public/ai"
-  }
+  "site": "https://example.com/",
+  "out": "public/ai",
+  "from": ["dist", "content/blog/*.md=/blog/*/"],
+  "exclude": ["/privacy"],
+  "llmsTxt": "public/llms.txt"
 }
 ```
 
-```bash
-pnpm run sitemap   # writes public/ai/; commit it, deploy as usual
-```
+`site` only sets the address the links point to. Each entry of `from` is one of:
 
-`<site-url>` then only sets the address the links point to. Each `--from` is one of:
-
-| `--from` | Reads | URL of a page |
+| `from` | Reads | URL of a page |
 | --- | --- | --- |
 | `dist` | every `.md` and `.html` in a folder: a built site | from the path: `dist/a/index.html` → `/a/`, `dist/a/b.md` → `/a/b` |
 | `content/**/*.md` | the files a glob matches (`*` within a folder, `**` across folders) | from the path after the glob's fixed part |
@@ -85,9 +102,21 @@ From Markdown front matter it takes `title` and `description` (the author's summ
 as is) and skips pages that are not public: `draft: true`, `status: draft` (also `private`,
 `hidden`, `unpublished`, `archived`, `scheduled`), `noindex: true`, and a `publishAt` or
 `publishDate` in the future. When a page exists both as `.html` and `.md`, the Markdown wins.
+Built pages with next to no text (search-console verification files) and the map's own copy in
+the build are skipped.
 
-A rebuild rewrites only the notes whose content changed and deletes the notes of pages that are
-gone, so the diff shows exactly what changed on the site.
+`agent-sitemap init` looks at the repository again and rewrites the file.
+
+### Any site, from the web
+
+Without a repository, give the address. The map is built from the live site, through its
+`sitemap.xml`:
+
+```bash
+npx agent-sitemap https://example.com
+```
+
+It writes the map to `./ai`, and prints where to upload it and the line for `llms.txt`.
 
 ## What an agent reads
 
@@ -174,7 +203,7 @@ folder that is not an earlier map.
 ## Hints from Claude
 
 ```bash
-npx agent-sitemap https://example.com --llm
+pnpm agent-sitemap --llm
 ```
 
 Without a model, the text next to a link is the first sentence of the target. With `--llm`, the
@@ -206,8 +235,8 @@ the build goes on.
 
 | Option | Default | |
 | --- | --- | --- |
-| `--from <files>` | | read pages from files instead of the web; repeatable, see [In your repository](#in-your-repository) |
-| `--out <dir>` | `./ai` | where to write the map |
+| `--from <files>` | from the settings | read pages from these files; repeatable, see [the settings file](#the-settings-file) |
+| `--out <dir>` | from the settings, else `./ai` | where to write the map |
 | `--base <url>` | `<site>/ai/` | absolute URL the map is served from |
 | `--name <name>` | host name | site name in the map title |
 | `--max-pages <n>` | `500` | stop after this many pages from the sitemap |
