@@ -52,7 +52,7 @@
 <rect x="331" y="196" width="236" height="6" fill="#8d262e"/>
 <text x="331" y="182" class="num">02</text>
 <text x="371" y="181" class="kind">LISTED ON THE MAP</text>
-<text x="347" y="226" class="path">ai/blog/skolko-stoit-…md</text>
+<text x="347" y="226" class="path">ai/blog/agent-cost.md</text>
 <text x="347" y="256" class="title">How much an</text>
 <text x="347" y="279" class="title">AI agent costs</text>
 <text x="347" y="312" class="caption">page · 6 sections</text>
@@ -73,7 +73,7 @@
 <rect x="623" y="196" width="236" height="6" fill="#8d262e"/>
 <text x="623" y="182" class="num">03</text>
 <text x="663" y="181" class="kind">SECTION 3 OF 6</text>
-<text x="639" y="226" class="path">…/skolko-stoit-rabota-…md</text>
+<text x="639" y="226" class="path">…/agent-cost/model-cost.md</text>
 <text x="639" y="256" class="title">What the model</text>
 <text x="639" y="279" class="title">costs to run</text>
 <text x="639" y="312" class="caption">section</text>
@@ -94,7 +94,7 @@
 <rect x="915" y="196" width="236" height="6" fill="#8d262e"/>
 <text x="915" y="182" class="num">04</text>
 <text x="955" y="181" class="kind">SIMILAR, ANOTHER PAGE</text>
-<text x="931" y="226" class="path">…/prostoy-raschet-…md</text>
+<text x="931" y="226" class="path">…/payback/simple-math.md</text>
 <text x="931" y="256" class="title">A simple payback</text>
 <text x="931" y="279" class="title">calculation</text>
 <text x="931" y="312" class="caption">from “Will an AI agent</text>
@@ -108,5 +108,5 @@
 <path d="M897 372 L908 362 L914 376" stroke="#8d262e" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M39 526 H1151" stroke="#0b0b0c" stroke-width="1"/>
 <text x="39" y="548"><tspan class="fig">Fig. 1.</tspan><tspan class="figtext" dx="8">The agent reads a map, not the site: every link says what is behind it and how many tokens it costs.</tspan></text>
-<text x="39" y="572" class="source">Oxblood: notes the agent opened. Grey: notes it saw listed and skipped. Example from the map of deckardlab.tech, titles translated from Russian.</text>
+<text x="39" y="572" class="source">Oxblood: notes the agent opened. Grey: notes it saw listed and skipped. Example from the map of deckardlab.tech; titles and paths translated from Russian.</text>
 </svg>
