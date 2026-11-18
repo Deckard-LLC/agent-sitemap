@@ -13,7 +13,8 @@
   <a href="#what-an-agent-reads">What an agent reads</a> ·
   <a href="#how-the-links-are-made">How the links are made</a> ·
   <a href="#publish-the-map">Publish the map</a> ·
-  <a href="#hints-from-claude">Hints from Claude</a>
+  <a href="#hints-from-a-model">Hints from a model</a> ·
+  <a href="#for-ai-agents">For AI agents</a>
 </p>
 
 ---
@@ -36,42 +37,86 @@ pnpm add -D agent-sitemap
 pnpm agent-sitemap
 ```
 
-In a terminal, the first run asks three questions, each with the answer it found already filled
-in, so Enter goes through:
+The first run sets everything up by asking three questions; later runs only rebuild the map.
+
+<table><tr><td>
+
+### Onboarding: the first run, step by step
+
+**Before you start.** Run it from the root of the site's repository, with Node 20.17 or newer. If
+some pages are built by a framework (Astro, Next export, Vite prerender…), build the site first:
+the map reads them from the build folder.
+
+**Step 1 of 3 · Site address.** The address found in `robots.txt`, `sitemap.xml`, `CNAME` or
+`package.json` is filled in.
+- Enter accepts it; type another address to change it.
+- No site online yet? Leave it empty: links inside the map become relative.
+
+**Step 2 of 3 · Pages.** You see what goes into the map: the build folder, groups of Markdown
+pages with the URLs they get (`blog/*/post.md → /blog/*/`), the folder the map is written to and
+the `llms.txt` that will point to it.
+- Enter (or `y`) builds the map from them.
+- `n` stops without saving: edit `agent-sitemap.config.json` by hand and run again.
+
+**Step 3 of 3 · Hints from a model.** Choose with ↑ ↓ and Enter who writes the «read if…» and
+«why follow» hints next to the links:
+
+| Option | Costs | What happens when you choose it |
+| --- | --- | --- |
+| No model | free | hints are the first sentence of each note; the same map on every run |
+| Claude Code, Codex | your subscription | shown when installed; if not signed in, the sign-in (`claude auth login`, `codex login`) opens right there |
+| DeepSeek, Kimi, OpenRouter | paid per request | the token is asked once and kept in `~/.config/agent-sitemap/`, never in the repository |
+| Claude API | paid per request | shown when `ANTHROPIC_API_KEY` is set |
+
+**Then** the map is built: a progress bar runs while the model writes the hints, and the build
+ends with what to do next.
+- Commit the map folder (e.g. `public/ai/`), `llms.txt` and `agent-sitemap.config.json`, and
+  deploy as usual. The map opens at `https://your-site/ai/index.md`.
+- `.agent-sitemap-cache.json` holds the model's answers: commit it to save requests on other
+  machines, or add it to `.gitignore`.
+
+**Next runs** ask nothing: `pnpm agent-sitemap` rebuilds the map from the saved settings and
+rewrites only what changed. `pnpm agent-sitemap init` asks the questions again. In CI, or with
+`--yes`, the answers found are taken without asking.
+
+</td></tr></table>
+
+A first run in the repository of [deckardlab.tech](https://deckardlab.tech), abridged (while
+the model writes the hints, a progress bar runs under «Annotating»):
 
 ```text
 1/3  Site address  links in the map point under it
-     found https://studio.example/ in public/robots.txt
-     Address [https://studio.example/]:
+     found https://deckardlab.tech/ in apps/web/public/robots.txt
+     Site address (https://deckardlab.tech/)
 
 2/3  Pages
-     12 Markdown pages blog/*/post.md → /blog/*/
-     the map goes to public/ai, served with the site from public
-     public/llms.txt gets one line pointing to the map
-     Build the map from these? [Y/n]:
+     built pages in apps/web/dist
+     13 Markdown pages blog/*/post.md → /blog/*/
+     the map goes to apps/web/public/ai, served with the site from apps/web/public
+     apps/web/public/llms.txt gets one line pointing to the map
+     Build the map from these? Yes
 
 3/3  Hints from a model  «read if…» next to every note, «why follow» next to every link
-     Who writes the hints?
-❯ No model
-  Claude Code, under your subscription
-  Codex, under your subscription · sign in first
-  DeepSeek API, deepseek-flash · token needed
-  Kimi API (Moonshot), kimi-k3 · token needed
-  OpenRouter: any model with one token, deepseek/deepseek-v4.1-flash · token needed
-hints are the first sentence of each note; free, the same map every time
-↑↓ navigate • ⏎ select
+     Who writes the hints? Claude Code, under your subscription
+
+Saved to agent-sitemap.config.json: edit it to change what goes into the map.
+
+Reading apps/web/dist, blog/*/post.md
+
+From https://deckardlab.tech: 1 page is on the site but not in the repository
+  markdown  https://deckardlab.tech/blog/
+
+Annotating 22 pages with the claude CLI
+
+Map: 167 notes in ./apps/web/public/ai (168 written, 0 unchanged, 0 removed)
+  added a line pointing to the map to ./apps/web/public/llms.txt
+
+Commit ./apps/web/public/ai and llms.txt and deploy with the site: the map opens at https://deckardlab.tech/ai/index.md
 ```
 
-Choose with the arrows and Enter. No address yet? Leave it empty: the links inside the map are then
-relative.
+### Where the pages come from
 
-The models offered: Claude Code and Codex when they are installed (if not signed in, choosing one
-runs its sign-in, `claude auth login` or `codex login`, right in the terminal), the Claude API
-when `ANTHROPIC_API_KEY` is set, and DeepSeek, Kimi and OpenRouter always: choosing one without a
-token asks for it once. The choice is remembered. In CI, or with `--yes`, nothing is asked and
-the answers found are taken as they are.
-
-To find those answers, the first run looks at the repository:
+The first run looks at the repository for:
 
 - **the site's address**, from `robots.txt`, `sitemap.xml` or `CNAME` in the static folder, or
   `homepage` in `package.json`;
@@ -80,43 +125,13 @@ To find those answers, the first run looks at the repository:
 - **the folder the site serves as is** (`public` or `static`), where the map goes as `ai/`;
 - **`llms.txt`** in that folder, which gets one line pointing to the map.
 
-It saves what it found to `agent-sitemap.config.json`, builds the map from the files, without
-requests to the web, and tells you what to commit:
-
-```text
-Looking at this repository for the site and its pages
-  found  site address https://deckardlab.tech/ (from apps/web/public/robots.txt)
-  found  built pages in apps/web/dist
-  found  13 Markdown pages blog/*/post.md → /blog/*/
-  found  map goes to apps/web/public/ai, served with the site from apps/web/public
-  found  llms.txt at apps/web/public/llms.txt will point to the map
-Saved to agent-sitemap.config.json: edit it to change what goes into the map.
-
-  apps/web/dist was built 20 hours ago
-Reading apps/web/dist, blog/*/post.md
-  skipped   apps/web/dist/yandex_bdd1b278ce167472.html (almost no text)
-  skipped   apps/web/dist/index.html (same URL as apps/web/dist/index.md)
-
-Map: 166 notes in ./apps/web/public/ai (167 written, 0 unchanged, 0 removed)
-  pages 21, sections 144
-  added a line pointing to the map to ./apps/web/public/llms.txt
-
-Commit ./apps/web/public/ai and llms.txt and deploy with the site: the map opens at https://deckardlab.tech/ai/index.md
-```
-
-<sub>A real first run in the repository of <a href="https://deckardlab.tech">deckardlab.tech</a>, abridged.</sub>
-
 Then it compares the result with the live site's `sitemap.xml`: pages that are on the site but in
 no file of the repository (posts published from another machine, pages a server renders) are read
 from the site, as Markdown when it offers it. Only those are fetched; a site out of reach leaves
 the map to the repository. `--offline`, or `"fromSite": false` in the settings, skips this.
 
-Later runs read `agent-sitemap.config.json`. A rebuild rewrites only the notes whose content
-changed and deletes the notes of pages that are gone, so the diff shows exactly what changed. You
-need Node 20.17 or newer; no API key unless you want [hints from a model](#hints-from-claude).
-
-Pages built by a framework come from its build folder, so build the site before the map when
-those pages change.
+A rebuild rewrites only the notes whose content changed and deletes the notes of pages that are
+gone, so the diff shows exactly what changed.
 
 ### The settings file
 
@@ -131,8 +146,9 @@ those pages change.
 }
 ```
 
-`llm` is `none`, `claude`, `codex` or `api`. When the chosen one is not available on a machine
-(no `claude` installed, no API key), the map is built without hints and the build says so.
+`llm` is `none`, `claude`, `codex`, `api`, `deepseek`, `kimi` or `openrouter`. When the chosen
+one is not available on a machine (not installed, not signed in, no token), the map is built
+without hints and the build says so once.
 
 `site` only sets the address the links point to. Each entry of `from` is one of:
 
@@ -162,6 +178,52 @@ npx agent-sitemap https://example.com
 ```
 
 It writes the map to `./ai`, and prints where to upload it and the line for `llms.txt`.
+
+## For AI agents
+
+Instructions for a coding agent (Claude Code, Codex, Cursor and the like) asked to set up or
+update the map of a site. Copy them into the repository's `AGENTS.md` or `CLAUDE.md` if the agent
+should keep the map up to date on its own.
+
+**Set it up**
+
+1. In the root of the site's repository: `pnpm add -D agent-sitemap` (or `npm i -D`).
+2. If some pages come from a framework build, build the site first (`pnpm build`).
+3. Run `pnpm agent-sitemap --yes`. Without a terminal there are no questions: the address, the
+   pages and the output folder are taken as found and saved to `agent-sitemap.config.json`.
+4. Read the output. Lines marked `missing` say what could not be found: put it in
+   `agent-sitemap.config.json` (`site`, `from`, `out`, see [the settings file](#the-settings-file))
+   and run again. Check that every `from` pattern maps files to the URLs they have on the live site.
+5. Check the map: `pnpm agent-sitemap check <out>` must report `0 problems` (exit code 0).
+6. Commit the map folder, `llms.txt` and `agent-sitemap.config.json`.
+
+**Hints from a model.** They cost the user money or subscription limits, so do not turn them on
+by yourself: ask first. With the user's consent, set `"llm"` in the settings (`claude`, `codex`,
+`deepseek`, `kimi`, `openrouter` or `api`). Never write a token into the repository or the
+settings: tokens come from environment variables (`DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`,
+`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`) or from the user's own first run in a terminal. If the
+build says an agent is not signed in, pass the command it names to the user.
+
+**Keep it up to date.** After changing pages or posts, run `pnpm agent-sitemap` again and commit
+the changes in the map folder together with the content. Only notes whose content changed are
+rewritten, so the diff is small. Do not edit files in the map folder by hand: the next build
+overwrites them; change the settings or the content instead.
+
+**Read a map.** To answer a question about a site that has one, start at `/ai/index.md` (or the
+map linked from its `llms.txt`). Each link says when to read the note and how many tokens it
+costs: open the page that fits the question, then only the sections you need, and follow
+«Where next» for related sections on other pages. Each note links back to the original page.
+
+A short version for `AGENTS.md`:
+
+```markdown
+## Site map for AI agents
+
+The map of this site for AI agents lives in `public/ai/` and is built by agent-sitemap
+(settings: `agent-sitemap.config.json`). After changing pages or posts, run
+`pnpm agent-sitemap`, check with `pnpm agent-sitemap check public/ai` and commit the map with
+the change. Do not edit the map by hand, and do not turn on hints from a model without asking.
+```
 
 ## What an agent reads
 
@@ -245,7 +307,7 @@ Pages are read as Markdown when the site offers it, and converted from HTML othe
 The build deletes notes of pages that are gone from `--out`, so it refuses to write into a
 folder that is not an earlier map.
 
-## Hints from Claude
+## Hints from a model
 
 ```bash
 pnpm agent-sitemap --llm
@@ -253,7 +315,7 @@ pnpm agent-sitemap --llm
 
 Without a model, the text next to a link is the first sentence of the target. With `--llm`, the
 build sends one request per page, with the page's sections and the links that leave it. It
-reaches a model in one of three ways (`--llm-with`):
+reaches a model in one of these ways (`--llm-with`):
 
 | `--llm-with` | Model | You need |
 | --- | --- | --- |
@@ -268,8 +330,9 @@ Address and model are built in; `--model` picks another. A token comes from its 
 variable or is entered once during the first run: it is then kept in
 `~/.config/agent-sitemap/credentials.json`, readable by you only, never in the repository.
 Without `--llm-with`, the build uses the model chosen on the first run; with `--llm` alone, the
-first one available: the Claude API with a key, an installed agent, a provider with a token. The agents run with no tools, in a read-only sandbox for Codex: they read the page
-they are given and answer with the same JSON schema as the API. The model writes:
+first one available: the Claude API with a key, an installed agent, a provider with a token.
+Claude Code runs with no tools and Codex in a read-only sandbox, in a temporary folder: they read
+the page they are given and answer with the same JSON schema as the APIs. The model writes:
 
 - **when to read** each page and section, shown next to every link to it:
   “read if you need to estimate the monthly budget”;
@@ -299,8 +362,9 @@ names the command that signs it in (`claude auth login`, `codex login`) and goes
 | `--lang <ru\|en>` | detected | language of the map's own labels |
 | `--links <style>` | `absolute` | `absolute` URLs for agents on the web, or `relative` paths for a self-contained bundle |
 | `--llm` | off | hints from a model, see above |
-| `--llm-with <how>` | auto | `api`, `claude` or `codex` |
-| `--model <id>` | per `--llm-with` | model for `--llm`: `claude-opus-5-5` for the API, the agent's own default otherwise |
+| `--llm-with <how>` | from the settings | `claude`, `codex`, `api`, `deepseek`, `kimi` or `openrouter` |
+| `--model <id>` | per `--llm-with` | another model than the built-in one |
+| `-y, --yes` | off | first run: take what was found, ask nothing |
 | `--cache <file>` | `.agent-sitemap-cache.json` | where `--llm` keeps its answers |
 
 ## Open Knowledge Format
