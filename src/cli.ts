@@ -21,6 +21,8 @@ import { isCyrillic } from "./text.ts";
 import { writeMap } from "./write.ts";
 
 const DEFAULT_OUT = "ai";
+/** Ways to reach a model for --llm-with. Up here: the top-level code below runs before later declarations. */
+const HOWS = ["api", "claude", "codex", "deepseek", "kimi", "openrouter"] as const;
 /** Stands in for the address of a site that has none yet; removed from everything written. */
 const NO_SITE = "https://site.invalid";
 
@@ -331,7 +333,6 @@ function display(path: string): string {
 }
 
 type How = Exclude<Config["llm"], "none" | undefined>;
-const HOWS: How[] = ["api", "claude", "codex", "deepseek", "kimi", "openrouter"];
 
 /**
  * Pages the live site has and the repository does not: its sitemap.xml against the files. They are
@@ -397,7 +398,7 @@ async function unreachable(how: How): Promise<string | null> {
 /** How to reach a model for --llm: as asked, else the API with a key, an agent found here, a preset with a token. */
 async function chooseLlm(asked: string | undefined): Promise<How> {
   if (asked) {
-    if (!HOWS.includes(asked as How)) fail(`--llm-with must be one of ${HOWS.join(", ")}, got «${asked}»`);
+    if (!(HOWS as readonly string[]).includes(asked)) fail(`--llm-with must be one of ${HOWS.join(", ")}, got «${asked}»`);
     return asked as How;
   }
   if (process.env.ANTHROPIC_API_KEY) return "api";

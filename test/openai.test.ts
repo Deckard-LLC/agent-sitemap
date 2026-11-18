@@ -133,3 +133,30 @@ test("onboarding asks for the token once, keeps it outside the repository and bu
     api.close();
   }
 });
+
+test("--llm --llm-with picks the provider from the command line", async () => {
+  const api = await provider((body) => ({ content: answerFor(body) }));
+  const cwd = await mkdtemp(join(tmpdir(), "agent-sitemap-flag-"));
+  const text = (topic: string) => `${topic} for people who run a company: what it costs, how long it takes and what to check first.\n\n## How\n\nThe steps, the numbers and the mistakes that cost the most when ${topic} goes wrong.`;
+  await mkdir(join(cwd, "blog/a"), { recursive: true });
+  await mkdir(join(cwd, "blog/b"), { recursive: true });
+  await writeFile(join(cwd, "blog/a/post.md"), `---\ntitle: Agent cost\n---\n\n${text("agent cost")}`);
+  await writeFile(join(cwd, "blog/b/post.md"), `---\ntitle: Payback\n---\n\n${text("payback")}`);
+  const out = await new Promise<string>((resolve) => {
+    const child = spawn("node", [cli, "https://studio.example", "--from", "blog/*/post.md=/blog/*/", "--llm", "--llm-with", "kimi"], {
+      cwd,
+      env: { ...process.env, MOONSHOT_API_KEY: "sk-kimi", AGENT_SITEMAP_LLM_BASE_URL: api.url, XDG_CONFIG_HOME: join(cwd, ".config-home") },
+    });
+    let text = "";
+    child.stdout.on("data", (c) => (text += c));
+    child.stderr.on("data", (c) => (text += c));
+    child.on("close", () => resolve(text));
+  });
+  try {
+    assert.match(out, /Annotating 2 pages with Kimi API \(Moonshot\) \(kimi-k3\)/);
+    assert.equal(api.seen[0].auth, "Bearer sk-kimi");
+    assert.equal(api.seen[0].body.model, "kimi-k3");
+  } finally {
+    api.close();
+  }
+});
