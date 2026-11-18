@@ -1,0 +1,13 @@
+{
+  // Emits dist/ for the npm package: Node runs .ts sources directly, but not inside node_modules.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": true,
+    "target": "es2022",
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

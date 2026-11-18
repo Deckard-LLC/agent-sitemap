@@ -1,0 +1,36 @@
+{
+  "name": "site-graph",
+  "version": "0.1.0",
+  "description": "Turns a website into a linked map of small Markdown notes that an AI agent can walk like an Obsidian vault.",
+  "keywords": ["ai", "agents", "llm", "llms.txt", "markdown", "sitemap", "knowledge-graph", "okf"],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "site-graph": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "dev": "node src/cli.ts",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.4.0",
+    "turndown": "7.2.2",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/turndown": "5.0.6",
+    "typescript": "5.9.3"
+  }
+}
