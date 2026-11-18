@@ -58,8 +58,13 @@ export async function fetchPage(url: string): Promise<FetchedPage | null> {
     const md = await get(new URL(alternate, url).href, "text/markdown, text/plain;q=0.9");
     if (md.ok) return { url, markdown: await md.text(), via: "alternate" };
   }
-  const main = body.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? body.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? body;
-  return { url, markdown: turndown.turndown(main), via: "html" };
+  return { url, markdown: htmlToMarkdown(body), via: "html" };
+}
+
+/** The page's <main> (or <body>) as Markdown, without navigation, scripts and forms. */
+export function htmlToMarkdown(html: string): string {
+  const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
+  return turndown.turndown(main);
 }
 
 /** Fetches with a small pool so a big site does not get hammered. */

@@ -1,16 +1,20 @@
 #!/usr/bin/env node
-// npx agent-sitemap <site-url> [options]   build the map
-// npx agent-sitemap check [dir]            check a built map
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+// npx agent-sitemap <site-url> [options]                 build the map from the live site
+// npx agent-sitemap <site-url> --from <files> [options]  build it from files in the repository
+// npx agent-sitemap check [dir]                          check a built map
+import { readdir, readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { agentAnnotator, installedAgents, type Agent } from "./agents.ts";
 import { annotate, claudeAnnotator, DEFAULT_MODEL } from "./annotate.ts";
 import { checkMap } from "./check.ts";
 import { discover, fetchAll } from "./fetch.ts";
+import { parseSource, readLocal } from "./local.ts";
 import { buildGraph } from "./graph.ts";
-import { pageKey, parsePage } from "./parse.ts";
+import { pageKey, parsePage, type Page } from "./parse.ts";
 import { OKF_VERSION, render } from "./render.ts";
 import { isCyrillic } from "./text.ts";
+import { writeMap } from "./write.ts";
 
 const DEFAULT_OUT = "ai";
 
@@ -20,7 +24,14 @@ Usage:
   npx agent-sitemap <site-url> [options]   build the map (also: agent-sitemap build <site-url>)
   npx agent-sitemap check [dir]            check a built map (default dir: ./${DEFAULT_OUT})
 
+By default the pages come from the live site, through its sitemap.xml. With --from they come from
+files in the repository, and <site-url> only sets the address the links point to.
+
 Options:
+  --from <files>     read pages from files instead of the web; repeatable. A folder (built .html/.md,
+                     URL from the path), a glob, or a glob with its URL: "blog/*/post.md=/blog/*/".
+                     Markdown front matter gives the title and description; drafts, «status: draft»
+                     and future «publishAt» are skipped
   --out <dir>        where to write the map (default: ./${DEFAULT_OUT})
   --base <url>       absolute URL the map will be served from (default: <site>/ai/)
   --name <name>      site name for the map title (default: host name)
@@ -29,9 +40,12 @@ Options:
   --lang <ru|en>     language of the map's own labels (default: detected from the content)
   --links <style>    absolute: URLs under --base, for agents on the web (default)
                      relative: paths inside the folder, a self-contained OKF bundle for git and OKF tools
-  --llm              let Claude write «when to read» for notes and «why follow» for links, and drop
-                     similarity links that only share words (needs ANTHROPIC_API_KEY; one request per page)
-  --model <id>       Claude model for --llm (default: ${DEFAULT_MODEL})
+  --llm              let a model write «when to read» for notes and «why follow» for links, and drop
+                     similarity links that only share words (one request per page)
+  --llm-with <how>   api: the Claude API (needs ANTHROPIC_API_KEY)
+                     claude, codex: the Claude Code or Codex CLI on this machine, signed in as you
+                     default: api when ANTHROPIC_API_KEY is set, else claude, else codex
+  --model <id>       model for --llm (default: ${DEFAULT_MODEL} for the API, the agent's own default otherwise)
   --cache <file>     LLM results by content hash; unchanged pages cost nothing (default: .agent-sitemap-cache.json)
   -v, --version      print the version
   -h, --help         print this help`;
@@ -40,6 +54,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     out: { type: "string", default: DEFAULT_OUT },
+    from: { type: "string", multiple: true, default: [] },
     base: { type: "string" },
     name: { type: "string" },
     "max-pages": { type: "string", default: "500" },
@@ -47,7 +62,8 @@ const { values, positionals } = parseArgs({
     lang: { type: "string" },
     links: { type: "string", default: "absolute" },
     llm: { type: "boolean", default: false },
-    model: { type: "string", default: DEFAULT_MODEL },
+    "llm-with": { type: "string" },
+    model: { type: "string" },
     cache: { type: "string", default: ".agent-sitemap-cache.json" },
     version: { type: "boolean", short: "v" },
     help: { type: "boolean", short: "h" },
@@ -94,23 +110,40 @@ async function build(siteArg: string): Promise<void> {
   await assertReplaceable(out);
   const excluded = values.exclude!.map((path) => path.replace(/\/+$/, "") || "/");
 
-  console.log(`Sitemap of ${site.origin}`);
-  const urls = (await discover(site, Number(values["max-pages"])))
-    .filter((url) => !excluded.some((path) => pageKey(url) === path || pageKey(url).startsWith(`${path}/`)));
-  console.log(`Fetching ${urls.length} pages`);
-  const fetched = await fetchAll(urls, 4, console.log);
-  if (!fetched.length) fail(`No pages could be read from ${site.origin}. Is the address right, and does the site answer?`);
+  const isExcluded = (url: string) => excluded.some((path) => pageKey(url) === path || pageKey(url).startsWith(`${path}/`));
+  const local = values.from!.length > 0;
 
-  const pages = fetched.map((page) => parsePage(page.url, page.markdown));
+  let pages: Page[];
+  if (local) {
+    const sources = values.from!.map(parseSource);
+    console.log(`Reading ${sources.map((s) => s.pattern).join(", ")}`);
+    const { pages: found, skipped } = await readLocal(sources, site).catch((error: Error) => fail(error.message));
+    for (const { file, reason } of skipped) console.log(`  skipped   ${file} (${reason})`);
+    const kept = found.filter((page) => !isExcluded(page.url)).slice(0, Number(values["max-pages"]));
+    for (const page of kept) console.log(`  ${page.file.padEnd(40)} → ${new URL(page.url).pathname}`);
+    if (!kept.length) fail("No pages to map: every file matched was skipped or excluded.");
+    pages = kept.map((page) => parsePage(page.url, page.markdown, { summary: page.description }));
+  } else {
+    console.log(`Sitemap of ${site.origin}`);
+    const urls = (await discover(site, Number(values["max-pages"]))).filter((url) => !isExcluded(url));
+    console.log(`Fetching ${urls.length} pages`);
+    const fetched = await fetchAll(urls, 4, console.log);
+    if (!fetched.length) fail(`No pages could be read from ${site.origin}. Is the address right, and does the site answer?`);
+    pages = fetched.map((page) => parsePage(page.url, page.markdown));
+  }
   const graph = buildGraph(pages);
 
   let llmSummary = "";
+  let hintsBy: string | undefined;
   if (values.llm) {
-    if (!process.env.ANTHROPIC_API_KEY) console.log("\nNote: ANTHROPIC_API_KEY is not set; the SDK will look for other credentials.");
-    console.log(`\nAnnotating ${[...graph.nodes.values()].filter((n) => n.type === "page").length} pages with ${values.model}`);
-    const report = await annotate(graph, claudeAnnotator(values.model), {
+    const how = await chooseLlm(values["llm-with"]);
+    hintsBy = how === "api" ? (values.model ?? DEFAULT_MODEL) : values.model ? `${how}/${values.model}` : how;
+    console.log(`\nAnnotating ${[...graph.nodes.values()].filter((n) => n.type === "page").length} pages with ${how === "api" ? `the Claude API (${hintsBy})` : `the ${how} CLI`}`);
+    const report = await annotate(graph, how === "api" ? claudeAnnotator(values.model ?? DEFAULT_MODEL) : agentAnnotator(how, values.model), {
       cachePath: resolve(values.cache!),
-      model: values.model!,
+      model: hintsBy,
+      // Agent CLIs are whole processes with their own limits: two at a time is plenty.
+      concurrency: how === "api" ? 4 : 2,
       log: console.log,
     });
     llmSummary =
@@ -127,21 +160,19 @@ async function build(siteArg: string): Promise<void> {
     generated: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
     producer: `agent-sitemap/${version}`,
     links: values.links as "absolute" | "relative",
-    model: values.llm ? values.model : undefined,
+    model: hintsBy,
   });
 
-  await rm(out, { recursive: true, force: true });
-  for (const [path, content] of files) {
-    const target = join(out, path);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content);
-  }
+  const written = await writeMap(out, files);
 
   const count = (kind: string) => graph.edges.filter((e) => e.kind === kind).length;
-  const shown = relative(process.cwd(), out) || ".";
+  // Inside the working directory as ./path, elsewhere as an absolute path.
+  const near = relative(process.cwd(), out) || ".";
+  const shown = near.startsWith("..") ? out : `./${near}`;
   const llms = new URL("/llms.txt", site).href;
   console.log(
-    `\nMap: ${files.size - 1} notes in ./${shown}\n` +
+    `\nMap: ${files.size - 1} notes in ${shown} ` +
+      `(${written.written} written, ${written.unchanged} unchanged, ${written.removed} removed)\n` +
       `  pages ${[...graph.nodes.values()].filter((n) => n.type === "page").length}, ` +
       `sections ${[...graph.nodes.values()].filter((n) => n.type === "section").length}\n` +
       `  edges: links ${count("links")}, lists ${count("lists")}, related ${count("related")}, next ${count("next")}\n` +
@@ -149,15 +180,30 @@ async function build(siteArg: string): Promise<void> {
       `  OKF ${OKF_VERSION} bundle, ${values.links} links` +
       llmSummary +
       `\n\nNext steps\n` +
-      `  1. Upload ./${shown} so that ${base}index.md opens. Rebuild it when the site changes.\n` +
+      (local
+        ? `  1. Commit ${shown} and deploy it with the site, so that ${base}index.md opens. Rebuild when the content changes.\n`
+        : `  1. Upload ${shown} so that ${base}index.md opens. Rebuild it when the site changes.\n`) +
       `  2. Tell agents where it is: add this line to ${llms}\n` +
       `       - [${lang === "ru" ? "Карта сайта для ИИ-агентов" : "Site map for AI agents"}](${base}index.md): ` +
       `${lang === "ru" ? "связанные заметки по страницам и разделам, с размером в токенах" : "linked notes for every page and section, with their size in tokens"}\n` +
-      `  3. Check the map any time: npx agent-sitemap check ./${shown}`,
+      `  3. Check the map any time: npx agent-sitemap check ${shown}`,
   );
 }
 
-/** The output folder is wiped before writing, so it must be empty or an earlier map. */
+/** How to reach a model for --llm: as asked, or the API with a key, else an agent CLI found on PATH. */
+async function chooseLlm(asked: string | undefined): Promise<"api" | Agent> {
+  if (asked && asked !== "api" && asked !== "claude" && asked !== "codex") fail(`--llm-with must be api, claude or codex, got «${asked}»`);
+  const agents = await installedAgents();
+  if (asked === "claude" || asked === "codex") {
+    if (!agents.includes(asked)) fail(`--llm-with ${asked}: the ${asked} command is not on PATH`);
+    return asked;
+  }
+  if (asked === "api" || process.env.ANTHROPIC_API_KEY) return "api";
+  if (agents.length) return agents[0];
+  fail("--llm needs a model: set ANTHROPIC_API_KEY, or install and sign in to Claude Code (claude) or Codex (codex).");
+}
+
+/** Notes missing from a new build are deleted from the output folder, so it must be empty or an earlier map. */
 async function assertReplaceable(dir: string): Promise<void> {
   const entries = await readdir(dir).catch(() => [] as string[]);
   if (!entries.length) return;

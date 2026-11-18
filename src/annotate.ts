@@ -42,7 +42,7 @@ export interface Usage {
   output: number;
 }
 
-const SCHEMA = {
+export const SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["nodes", "edges"],
@@ -68,7 +68,7 @@ const SCHEMA = {
   },
 } as const;
 
-const SYSTEM = `You annotate a map of a website for AI agents. The map splits each page into small notes (the page itself and its sections) and links them. An agent reading the map sees only a title and your short texts next to each link, and must decide whether opening the note is worth the tokens. Your texts are that decision aid.
+export const SYSTEM = `You annotate a map of a website for AI agents. The map splits each page into small notes (the page itself and its sections) and links them. An agent reading the map sees only a title and your short texts next to each link, and must decide whether opening the note is worth the tokens. Your texts are that decision aid.
 
 You get one page: its intro, the full text of every section, and the links that leave this page or its sections, with the target's title and a rough summary.
 

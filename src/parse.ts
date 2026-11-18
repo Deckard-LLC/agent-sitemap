@@ -44,7 +44,12 @@ export function pageKey(url: string): string {
 
 const LINK = /\[((?:[^\[\]]|\[[^\]]*\])*)\]\(\s*<?([^\s)>]+)>?(?:\s+"[^"]*")?\s*\)/g;
 
-export function parsePage(url: string, raw: string): Page {
+export interface PageMeta {
+  /** A summary written by the author (front-matter description), used instead of the first sentence. */
+  summary?: string;
+}
+
+export function parsePage(url: string, raw: string, meta: PageMeta = {}): Page {
   const lines = raw.replace(/\r\n?/g, "\n").replace(/^﻿/, "").replace(/^---\n[\s\S]*?\n---\n/, "").split("\n");
   const h1 = lines.findIndex((line) => /^#\s+\S/.test(line));
   let title = "";
@@ -99,7 +104,7 @@ export function parsePage(url: string, raw: string): Page {
   }
 
   const lead = clean(blocks[0].lines.join("\n"));
-  const summary = summarize(lead || sections[0]?.body || "");
+  const summary = meta.summary?.replace(/\s+/g, " ").trim() || summarize(lead || sections[0]?.body || "");
   // The summary is shown above the intro; do not print the same paragraph twice.
   const intro = lead
     .split(/\n\s*\n/)
@@ -134,9 +139,11 @@ function joinHeading(lines: string[], at: number): { text: string; next: number 
   return { text: text.trim(), next };
 }
 
-/** Drops images-as-links, eyebrow labels and runs of blank lines; images keep their alt text. */
+/** Drops widget blocks, images-as-links, eyebrow labels and runs of blank lines; images keep their alt text. */
 function clean(markdown: string): string {
   const text = markdown
+    // ```widget name``` blocks are mount points for scripts on the page: nothing for a reader.
+    .replace(/^```widget\b[^\n]*\n[\s\S]*?\n```[ \t]*$/gm, "")
     .replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g, "")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt: string) => (alt.trim() ? `_(${imageLabel(alt)}: ${alt.trim()})_` : ""))
     .split("\n")

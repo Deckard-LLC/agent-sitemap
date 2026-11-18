@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
+  <a href="#in-your-repository">In your repository</a> ·
   <a href="#what-an-agent-reads">What an agent reads</a> ·
   <a href="#how-the-links-are-made">How the links are made</a> ·
   <a href="#publish-the-map">Publish the map</a> ·
@@ -50,6 +51,43 @@ Next steps
 ```
 
 <sub>Output of a real build of <a href="https://deckardlab.tech">deckardlab.tech</a>, a Russian-language site.</sub>
+
+## In your repository
+
+The map can also be built from the site's own files, with no requests to the web. Install it in
+the site's repository, run it, and commit the result with the site:
+
+```bash
+pnpm add -D agent-sitemap
+```
+
+```json
+{
+  "scripts": {
+    "sitemap": "agent-sitemap https://example.com --from dist --from \"content/blog/*.md=/blog/*/\" --out public/ai"
+  }
+}
+```
+
+```bash
+pnpm run sitemap   # writes public/ai/; commit it, deploy as usual
+```
+
+`<site-url>` then only sets the address the links point to. Each `--from` is one of:
+
+| `--from` | Reads | URL of a page |
+| --- | --- | --- |
+| `dist` | every `.md` and `.html` in a folder: a built site | from the path: `dist/a/index.html` → `/a/`, `dist/a/b.md` → `/a/b` |
+| `content/**/*.md` | the files a glob matches (`*` within a folder, `**` across folders) | from the path after the glob's fixed part |
+| `blog/*/post.md=/blog/*/` | the same, with the URL given | each `*` in the URL takes what the `*` in the path matched |
+
+From Markdown front matter it takes `title` and `description` (the author's summary is used
+as is) and skips pages that are not public: `draft: true`, `status: draft` (also `private`,
+`hidden`, `unpublished`, `archived`, `scheduled`), `noindex: true`, and a `publishAt` or
+`publishDate` in the future. When a page exists both as `.html` and `.md`, the Markdown wins.
+
+A rebuild rewrites only the notes whose content changed and deletes the notes of pages that are
+gone, so the diff shows exactly what changed on the site.
 
 ## What an agent reads
 
@@ -136,12 +174,22 @@ earlier map.
 ## Hints from Claude
 
 ```bash
-ANTHROPIC_API_KEY=... npx agent-sitemap https://example.com --llm
+npx agent-sitemap https://example.com --llm
 ```
 
 Without a model, the text next to a link is the first sentence of the target. With `--llm`, the
-build sends one request per page to Claude (`claude-opus-5-5` by default, `--model` to change it)
-with the page's sections and the links that leave it. The model writes:
+build sends one request per page, with the page's sections and the links that leave it. It
+reaches a model in one of three ways (`--llm-with`):
+
+| `--llm-with` | Model | You need |
+| --- | --- | --- |
+| `api` | the Claude API, `claude-opus-5-5` unless `--model` says otherwise | `ANTHROPIC_API_KEY` |
+| `claude` | [Claude Code](https://claude.com/claude-code) on this machine (`claude -p`) | `claude` installed and signed in |
+| `codex` | [Codex](https://github.com/openai/codex) on this machine (`codex exec`) | `codex` installed and signed in |
+
+Without `--llm-with`, the build uses the API when `ANTHROPIC_API_KEY` is set, else Claude Code,
+else Codex. The agents run with no tools, in a read-only sandbox for Codex: they read the page
+they are given and answer with the same JSON schema as the API. The model writes:
 
 - **when to read** each page and section, shown next to every link to it:
   “read if you need to estimate the monthly budget”;
@@ -158,6 +206,7 @@ the build goes on.
 
 | Option | Default | |
 | --- | --- | --- |
+| `--from <files>` | | read pages from files instead of the web; repeatable, see [In your repository](#in-your-repository) |
 | `--out <dir>` | `./ai` | where to write the map |
 | `--base <url>` | `<site>/ai/` | absolute URL the map is served from |
 | `--name <name>` | host name | site name in the map title |
@@ -165,8 +214,9 @@ the build goes on.
 | `--exclude <path>` | | skip pages under this path; repeatable |
 | `--lang <ru\|en>` | detected | language of the map's own labels |
 | `--links <style>` | `absolute` | `absolute` URLs for agents on the web, or `relative` paths for a self-contained bundle |
-| `--llm` | off | hints from Claude, see above |
-| `--model <id>` | `claude-opus-5-5` | Claude model for `--llm` |
+| `--llm` | off | hints from a model, see above |
+| `--llm-with <how>` | auto | `api`, `claude` or `codex` |
+| `--model <id>` | per `--llm-with` | model for `--llm`: `claude-opus-5-5` for the API, the agent's own default otherwise |
 | `--cache <file>` | `.agent-sitemap-cache.json` | where `--llm` keeps its answers |
 
 ## Open Knowledge Format
@@ -191,6 +241,7 @@ itself, so the map pays off on larger sites and narrow questions. Next:
 - an eval: questions to a site, and the hops and tokens an agent needs with and without the map;
 - leaner notes, and token labels that count the whole note, not only its text;
 - a GitHub Action that rebuilds the map on every deploy;
+- a library API, for building the map from code;
 - topic hubs that gather sections across pages.
 
 ## Development
